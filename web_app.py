@@ -10,7 +10,6 @@ import srtm
 
 st.set_page_config(page_title="Flight Planner", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
-# Fixed-screen layout: controls stay on the left, the map occupies the right.
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"] { overflow: hidden !important; }
@@ -23,7 +22,7 @@ section[data-testid="stSidebar"] > div { padding-top: .5rem !important; }
 DEFAULT_GAIN = [(30,-35.0),(60,-24.5),(90,-12.5),(500,-1.0),(1000,3.0),(2000,3.0),(3000,2.0),(4500,2.0),(5000,2.0),(6000,4.0)]
 EARTH_RADIUS_M = 6371000.0
 C = 299792458.0
-NOISE_BW_MHZ = 0.025  # fixed 25 kHz
+NOISE_BW_MHZ = 0.025
 DEFAULT_NF_DB = 6.0
 
 
@@ -108,9 +107,6 @@ def terrain_elevation(provider, lat, lon, cache):
 
 
 def los_clear(provider, alat, alon, aalt, glat, glon, gelev, cache, samples=40):
-    """Terrain LOS: sample the terrain between aircraft and ground point.
-    The ray is compared against terrain elevation with a small clearance margin.
-    """
     horizontal=haversine_m(alat,alon,glat,glon)
     if horizontal < 2: return True
     count=max(10,int(samples))
@@ -120,8 +116,7 @@ def los_clear(provider, alat, alon, aalt, glat, glon, gelev, cache, samples=40):
         lon=alon+(glon-alon)*t
         terrain=terrain_elevation(provider,lat,lon,cache)
         ray=aalt+(gelev-aalt)*t
-        if terrain >= ray-2.0:
-            return False
+        if terrain >= ray-2.0: return False
     return True
 
 
@@ -130,8 +125,6 @@ def base_map(center, zoom):
 
 
 def add_auto_draw(m, mode):
-    """Create the Leaflet.draw handler but hide its toolbar and start the selected
-    handler automatically. Thus the user never sees the little draw icons."""
     opts={
         "polyline": {"shapeOptions":{"color":"#ff3333","weight":4}} if mode=="path" else False,
         "polygon": False,
@@ -205,12 +198,7 @@ def add_heat_cells(m, grid, details, bounds, vmin, vmax):
                             f"Noise Floor: {detail['noise_floor']:.1f} dBm<br>"
                             f"DTM Elevation: {detail['ground_elev']:.1f} m<br>"
                             f"LOS: CLEAR</div>")
-            folium.Rectangle(
-                bounds=[[south,west],[north,east]],stroke=False,fill=True,
-                fill_color=fill,fill_opacity=.76,
-                tooltip=folium.Tooltip(tip,sticky=True),
-                popup=folium.Popup(popup_html,max_width=330)
-            ).add_to(m)
+            folium.Rectangle(bounds=[[south,west],[north,east]],stroke=False,fill=True,fill_color=fill,fill_opacity=.76,tooltip=folium.Tooltip(tip,sticky=True),popup=folium.Popup(popup_html,max_width=330)).add_to(m)
 
 
 def add_legend(m,vmin,vmax):
@@ -218,15 +206,9 @@ def add_legend(m,vmin,vmax):
     m.get_root().html.add_child(Element(html))
 
 
-# Session state
-for k,d in [
-    ("mode",None),("path",None),("aoi",None),
-    ("path_confirmed",False),("aoi_confirmed",False),
-    ("analysis",None),("run_requested",False)
-]:
+for k,d in [("mode",None),("path",None),("aoi",None),("path_confirmed",False),("aoi_confirmed",False),("analysis",None),("run_requested",False)]:
     if k not in st.session_state: st.session_state[k]=d
 
-# LEFT: all controls. RIGHT: map only.
 with st.sidebar:
     st.title("✈️ Flight Planner")
     st.subheader("Geometry")
@@ -236,7 +218,10 @@ with st.sidebar:
         if st.session_state.path and not st.session_state.path_confirmed:
             st.session_state.path_confirmed=True
         else:
-            st.session_state.mode="path"; st.session_state.path_confirmed=False; st.session_state.analysis=None
+            st.session_state.mode="path"
+            st.session_state.path=None
+            st.session_state.path_confirmed=False
+            st.session_state.analysis=None
         st.rerun()
 
     aoi_label="אישור AOI" if st.session_state.aoi and not st.session_state.aoi_confirmed else "AOI"
@@ -244,7 +229,10 @@ with st.sidebar:
         if st.session_state.aoi and not st.session_state.aoi_confirmed:
             st.session_state.aoi_confirmed=True
         else:
-            st.session_state.mode="aoi"; st.session_state.aoi_confirmed=False; st.session_state.analysis=None
+            st.session_state.mode="aoi"
+            st.session_state.aoi=None
+            st.session_state.aoi_confirmed=False
+            st.session_state.analysis=None
         st.rerun()
 
     if st.button("🗑️  נקה בחירות",use_container_width=True):
@@ -270,7 +258,7 @@ with st.sidebar:
     sys_loss=st.number_input("System Loss (dB)",0.0,30.0,0.0,.5)
 
     st.caption("Noise Bandwidth: fixed at 25 kHz")
-    noise_figure=st.number_input("Receiver Noise Figure NF (dB)",0.0,30.0,DEFAULT_NF_DB,.5,help="NF represents additional receiver noise. SNR uses thermal noise + NF. If the receiver NF is unknown, 0 dB is an ideal/noiseless assumption.")
+    noise_figure=st.number_input("Receiver Noise Figure NF (dB)",0.0,30.0,DEFAULT_NF_DB,.5,help="NF is receiver noise added above thermal noise. It is required for a physical SNR calculation. If unknown, 0 dB means an ideal receiver assumption.")
 
     st.subheader("Heat Map Scale")
     scale_min=st.number_input("Color Bar Min (dB)",-200.0,200.0,-25.0,1.0)
@@ -283,7 +271,6 @@ with st.sidebar:
     st.caption("מסלול: "+("✅ מאושר" if st.session_state.path_confirmed else "❌ לא מאושר"))
     st.caption("AOI: "+("✅ מאושר" if st.session_state.aoi_confirmed else "❌ לא מאושר"))
 
-# MAP
 center=[31.8,35.0]
 if st.session_state.path: center=st.session_state.path[len(st.session_state.path)//2]
 elif st.session_state.aoi: center=[sum(p[0] for p in st.session_state.aoi)/len(st.session_state.aoi),sum(p[1] for p in st.session_state.aoi)/len(st.session_state.aoi)]
@@ -299,13 +286,11 @@ else:
     m=base_map(center,8 if (st.session_state.path or st.session_state.aoi) else 7)
     add_geometry(m)
     if st.session_state.mode in ("path","aoi"):
-        # Drawing begins immediately; there are no drawing icons on the map.
-        if (st.session_state.mode=="path" and not st.session_state.path_confirmed) or (st.session_state.mode=="aoi" and not st.session_state.aoi_confirmed):
+        if (st.session_state.mode=="path" and not st.session_state.path_confirmed and not st.session_state.path) or (st.session_state.mode=="aoi" and not st.session_state.aoi_confirmed and not st.session_state.aoi):
             add_auto_draw(m,st.session_state.mode)
 
 map_state=st_folium(m,height=760,use_container_width=True,returned_objects=["all_drawings"],key="mission_map")
 
-# Capture the just-drawn geometry and turn the action button into an approval button.
 if not st.session_state.analysis:
     drawings=map_state.get("all_drawings") or []
     if drawings:
@@ -317,7 +302,6 @@ if not st.session_state.analysis:
             st.session_state.aoi=[[p[1],p[0]] for p in coords[0]]; st.session_state.aoi_confirmed=False; changed=True
         if changed: st.rerun()
 
-# Analysis
 if st.session_state.run_requested and ready:
     st.session_state.run_requested=False
     if min_freq>max_freq:
