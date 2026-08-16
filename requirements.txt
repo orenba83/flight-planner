@@ -3,3 +3,4 @@ folium>=0.18,<1
 streamlit-folium>=0.23,<1
 numpy>=1.26,<3
 Pillow>=10,<12
+srtm>=0.3.8
