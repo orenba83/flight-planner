@@ -1,0 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#2563eb"
+
+[server]
+headless = true
+maxUploadSize = 200
