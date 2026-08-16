@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Planner – Web Preview</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#111827;color:#e5e7eb}header{padding:14px 18px;background:#0b1220;border-bottom:1px solid #263244}h1{margin:0;font-size:20px}small{color:#9ca3af}.layout{display:grid;grid-template-columns:330px 1fr;height:calc(100vh - 64px)}aside{padding:16px;background:#151d2e;overflow:auto;border-right:1px solid #263244}.field{margin-bottom:14px}label{display:block;font-size:12px;color:#aab4c3;margin-bottom:5px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}input,button{width:100%;border:1px solid #374151;border-radius:6px;background:#0f172a;color:#fff;padding:9px}button{background:#2563eb;border:0;cursor:pointer;margin-top:4px}button.secondary{background:#374151}.result{margin-top:16px;padding:12px;border-radius:8px;background:#0b1220;font-size:13px;line-height:1.55}.ok{color:#86efac}.warn{color:#fbbf24}#map{height:100%;min-height:500px}.hint{font-size:12px;color:#9ca3af;margin:10px 0}
+</style>
+</head>
+<body>
+<header><h1>✈ Flight Planner <small>Web Preview</small></h1></header>
+<div class="layout">
+<aside>
+<div class="field"><label>TX Power (dBm)</label><input id="pt" type="number" value="37" step="0.5"></div>
+<div class="field"><label>System Loss (dB)</label><input id="loss" type="number" value="3" step="0.5"></div>
+<div class="field"><label>Altitude (kft)</label><input id="alt" type="number" value="35" step="1"></div>
+<div class="field"><label>Frequency (MHz)</label><input id="freq" type="number" value="1000" step="1"></div>
+<div class="field"><label>Rx Antenna Gain (dBi)</label><input id="gain" type="number" value="0" step="0.5"></div>
+<div class="field"><label>Noise Figure (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
+<div class="field"><label>Bandwidth (MHz)</label><input id="bw" type="number" value="1" step="0.1"></div>
+<button id="pathBtn">Draw Flight Path</button>
+<button id="clearBtn" class="secondary">Clear</button>
+<div class="hint">Click points on the map after enabling path mode. The browser preview is independent of the original PyQt desktop app.</div>
+<div id="result" class="result">Select a point or draw a path.</div>
+</aside>
+<main id="map"></main>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([31.8,35.0],7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+let markers=[], line=null, pathMode=false;
+const $=id=>document.getElementById(id);
+function hav(a,b){const R=6371000, p=Math.PI/180;const dLat=(b.lat-a.lat)*p,dLon=(b.lng-a.lng)*p;const x=Math.sin(dLat/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+function calc(distance){const pt=+$('pt').value,loss=+$('loss').value,alt=+$('alt').value*304.8,f=+$('freq').value*1e6,gain=+$('gain').value,nf=+$('nf').value,bw=+$('bw').value*1e6;const d=Math.sqrt(distance*distance+alt*alt);const fspl=20*Math.log10(4*Math.PI*d*f/299792458);const pr=pt+gain-fspl-loss;const noise=-174+10*Math.log10(bw)+nf;const snr=pr-noise;return {d,fspl,pr,noise,snr};}
+function update(){if(!markers.length){$('result').innerHTML='Select a point or draw a path.';return}let total=0;for(let i=1;i<markers.length;i++)total+=hav(markers[i-1].getLatLng(),markers[i].getLatLng());const r=calc(total);$('result').innerHTML=`<b>Flight path</b><br>Points: ${markers.length}<br>Distance: ${(total/1000).toFixed(2)} km<br>3D path: ${(r.d/1000).toFixed(2)} km<br>Free-space loss: ${r.fspl.toFixed(2)} dB<br>Rx power: ${r.pr.toFixed(2)} dBm<br>Noise floor: ${r.noise.toFixed(2)} dBm<br><b>SNR: <span class="${r.snr>=0?'ok':'warn'}">${r.snr.toFixed(2)} dB</span></b>`;}
+$('pathBtn').onclick=()=>{pathMode=!pathMode;$('pathBtn').textContent=pathMode?'Stop Drawing':'Draw Flight Path'};
+$('clearBtn').onclick=()=>{markers.forEach(m=>map.removeLayer(m));markers=[];if(line)map.removeLayer(line);line=null;pathMode=false;$('pathBtn').textContent='Draw Flight Path';update()};
+map.on('click',e=>{if(!pathMode)return;const m=L.marker(e.latlng,{draggable:true}).addTo(map);m.on('dragend',()=>{redraw();update()});markers.push(m);redraw();update()});
+function redraw(){if(line)map.removeLayer(line);line=markers.length>1?L.polyline(markers.map(m=>m.getLatLng()),{color:'red',weight:3}).addTo(map):null}
+</script>
+</body>
+</html>
