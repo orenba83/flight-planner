@@ -221,7 +221,8 @@ elif st.session_state.aoi:
 m = make_map(st.session_state.draw_mode, center=center,
              zoom=8 if (st.session_state.path or st.session_state.aoi) else 7)
 add_saved_geometry(m)
-map_state = st_folium(m, height=760, width=0, returned_objects=["all_drawings"], key="geometry_map")
+map_state = st_folium(m, height=760, use_container_width=True,
+                      returned_objects=["all_drawings"], key="geometry_map")
 
 new_drawings = map_state.get("all_drawings") or []
 if new_drawings:
@@ -381,7 +382,7 @@ if st.session_state.analysis:
     ImageOverlay(image=Image.fromarray(overlay, mode="RGBA"), bounds=bounds,
                  opacity=0.70, interactive=False).add_to(result_map)
     folium.Rectangle(bounds=bounds, color="blue", fill=False, weight=2).add_to(result_map)
-    st_folium(result_map, height=650, width=0, key="snr_result_map")
+    st_folium(result_map, height=650, use_container_width=True, key="snr_result_map")
 
     if valid.size:
         c1, c2, c3 = st.columns(3)
