@@ -21,6 +21,8 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .modes button small{display:block;color:var(--muted);font-size:10px}
 .modes button.active{background:var(--accent);border-color:var(--accent)}
 .modes button.active small{color:#dbeafe}
+.modes button.layerBtn{border-style:dashed}
+.modes button.layerOn{background:#0f766e;border-color:#14b8a6}
 .run{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe));z-index:40;border:0;border-radius:14px;padding:14px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;box-shadow:0 8px 24px #0008}
 .run:disabled{background:#334155;color:#94a3b8}
 .legend{position:fixed;left:10px;bottom:calc(132px + var(--safe));z-index:21;width:158px;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px}
@@ -60,11 +62,15 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="kpi"><span>ממוצע SNR</span><b id="kAvg">-</b></div>
 <div class="kpi"><span>מקס SNR</span><b id="kMax">-</b></div>
 <div class="kpi"><span>הפסד עקיפה</span><b id="kDiff">-</b></div>
+<div class="kpi"><span>אליפסה a90</span><b id="kEll">-</b></div>
+<div class="kpi"><span>מפתח זווית</span><b id="kPhi">-</b></div>
 </div></div>
 <div class="banner" id="banner"><b>שלב 1:</b> ציירו מסלול. אחר כך AOI, ואז Run Analysis.</div>
 <div class="modes">
 <button id="mPath" class="active">1. מסלול טיסה<small>לחיצה מוסיפה נקודת מטוס</small></button>
 <button id="mAoi">2. ציור AOI<small>שתי לחיצות לפינות מלבן</small></button>
+<button id="mSnr" class="layerBtn">מפת SNR<small>אנליזה 1</small></button>
+<button id="mEll" class="layerBtn">מפת אליפסה<small>אנליזה 2 · a90</small></button>
 </div>
 <div class="legend"><b>SNR (dB) — סקאלה אוטומטית</b><div class="bar"></div>
 <div style="display:flex;justify-content:space-between"><span id="legMin">-</span><span id="legMid">-</span><span id="legMax">-</span></div>
@@ -100,10 +106,12 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <option value="single">נקודת מטוס אחת</option>
 </select></div>
 <div class="field"><label>אינדקס נקודה</label><input id="wpIndex" type="number" value="1" min="1"></div>
+<div class="field"><label>DF RMS (°)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
+<div class="field"><label>אליפסה %</label><input id="ellP" type="number" value="90" min="50" max="99"></div>
 <label class="check"><input id="useDtm" type="checkbox" checked> הפסד עקיפה לפי DTM (knife-edge)</label>
 </div>
 <div class="row"><button id="clearBtn">נקה</button><button id="saveBtn">שמור</button><button id="loadBtn">טען</button></div>
-<p class="hint">SNR = תקציב קישור − FSPL(מרחק 3D) − הפסד עקיפה. הסקאלה מתאימה את עצמה לתוצאות.</p>
+<p class="hint">Run Analysis מריץ שתי אנליזות: SNR + אליפסת DF 90%. האליפסה מחיתוך שני ה-DF הקיצוניים לאורך כל המסלול (מפתח זוויתי מקסימלי). ירוק = a90 קטן.</p>
 <div class="result" id="result">ציירו מסלול ו-AOI ואז Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -114,7 +122,7 @@ const $=id=>document.getElementById(id);
 const map=L.map('map',{zoomControl:true}).setView([31.8,35.0],7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'OSM'}).addTo(map);
 const heatLayer=L.layerGroup().addTo(map),aoiLayer=L.layerGroup().addTo(map),pathLayer=L.layerGroup().addTo(map);
-let mode='path',path=[],markers=[],aoi=null,aoiCorners=[],hasAnalysis=false,dem=null,elevCache={},dtmSource='',demStats={min:0,max:0,mean:0};
+let mode='path',path=[],markers=[],aoi=null,aoiCorners=[],hasAnalysis=false,dem=null,elevCache={},dtmSource='',demStats={min:0,max:0,mean:0},lastCells=[],heatKind='snr',ellScale={cmin:0,cmax:1},snrScale={cmin:0,cmax:1};
 let progT0=0,progLastUi=0;
 function showProgress(on){const w=$('progWrap');if(!w)return;w.classList.toggle('show',!!on);if(on){progT0=performance.now();progLastUi=0;setProgress(0,'מתחיל…')}}
 function setProgress(pct,label){
@@ -137,10 +145,9 @@ function setProgress(pct,label){
   }
 }
 function yieldUi(){return new Promise(r=>setTimeout(r,0))}
-
 function interpGain(f){if(f<=GAIN[0][0])return GAIN[0][1];if(f>=GAIN[GAIN.length-1][0])return GAIN[GAIN.length-1][1];for(let i=1;i<GAIN.length;i++){const [f0,g0]=GAIN[i-1],[f1,g1]=GAIN[i];if(f<=f1)return g0+(g1-g0)*(f-f0)/(f1-f0)}return GAIN[GAIN.length-1][1]}
 function hav(a,b){const p=Math.PI/180,dLat=(b.lat-a.lat)*p,dLon=(b.lng-a.lng)*p,x=Math.sin(dLat/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)))}
-function params(){const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(10,+$('gridn').value|0),losN:Math.max(6,+$('lossamp').value|0),view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0),useDtm:$('useDtm').checked}}
+function params(){const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(10,+$('gridn').value|0),losN:Math.max(6,+$('lossamp').value|0),view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0),useDtm:$('useDtm').checked,dfSig:Math.max(0.05,+$('dfSig').value),ellP:Math.max(50,Math.min(99,+$('ellP').value))}}
 function linkBudget(ac,ground,p,freq,gElev,extraLoss){const horiz=hav(ac,ground);const dh=p.altM-(gElev||0);const d=Math.sqrt(horiz*horiz+dh*dh);const fspl=d<=1?0:20*Math.log10(4*Math.PI*d*(freq*1e6)/C);const gr=interpGain(freq);const noise=-174+10*Math.log10(p.bwHz)+p.nf;const Lextra=extraLoss||0;const pr=p.pt+gr-fspl-p.lpol-p.lsys-Lextra;return{d,horiz,fspl,gr,noise,pr,snr:pr-noise,freq,Lextra}}
 function resample(pts,n){if(!pts.length)return[];if(pts.length===1||n<=1)return[pts[0]];const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));const total=cum[cum.length-1];if(total<=0)return[pts[0]];const out=[];for(let k=0;k<n;k++){const target=total*k/(n-1);let seg=1;while(seg<cum.length-1&&cum[seg]<target)seg++;const a=pts[seg-1],b=pts[seg],len=cum[seg]-cum[seg-1],t=len?(target-cum[seg-1])/len:0;out.push({lat:a.lat+t*(b.lat-a.lat),lng:a.lng+t*(b.lng-a.lng)})}return out}
 function color(v,vmin,vmax){const x=Math.max(0,Math.min(1,(v-vmin)/Math.max(vmax-vmin,1e-9)));const s=[[0,[213,43,30]],[.35,[247,148,30]],[.55,[255,221,51]],[.75,[140,200,60]],[1,[46,204,64]]];for(let i=0;i<s.length-1;i++){if(x<=s[i+1][0]){const t=(x-s[i][0])/(s[i+1][0]-s[i][0]||1);const c=s[i][1].map((a,k)=>Math.round(a+t*(s[i+1][1][k]-a)));return 'rgb('+c[0]+','+c[1]+','+c[2]+')'}}return 'rgb(46,204,64)'}
@@ -157,6 +164,13 @@ async function fetchElevations(points){const need=[];for(const p of points){cons
 function elevAt(lat,lng){if(dem){const x=(lng-dem.minLng)/Math.max(dem.dLng,1e-12);const y=(lat-dem.minLat)/Math.max(dem.dLat,1e-12);const x0=Math.max(0,Math.min(dem.nx-2,Math.floor(x)));const y0=Math.max(0,Math.min(dem.ny-2,Math.floor(y)));const tx=Math.max(0,Math.min(1,x-x0)),ty=Math.max(0,Math.min(1,y-y0));const i=y0*dem.nx+x0;return dem.data[i]*(1-tx)*(1-ty)+dem.data[i+1]*tx*(1-ty)+dem.data[i+dem.nx]*(1-tx)*ty+dem.data[i+dem.nx+1]*tx*ty}return elevCache[lat.toFixed(4)+','+lng.toFixed(4)]||0}
 async function buildDem(bounds,nx,ny){const minLat=bounds.getSouth(),maxLat=bounds.getNorth(),minLng=bounds.getWest(),maxLng=bounds.getEast();const dLat=(maxLat-minLat)/Math.max(1,ny-1),dLng=(maxLng-minLng)/Math.max(1,nx-1);const pts=[];for(let iy=0;iy<ny;iy++) for(let ix=0;ix<nx;ix++) pts.push({lat:minLat+iy*dLat,lng:minLng+ix*dLng});dtmSource=await fetchElevations(pts);const data=new Float32Array(nx*ny);let mn=Infinity,mx=-Infinity,sum=0;pts.forEach((p,i)=>{const e=Number.isFinite(elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)])?elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]:0;data[i]=e;sum+=e;mn=Math.min(mn,e);mx=Math.max(mx,e)});dem={minLat,minLng,dLat,dLng,nx,ny,data};demStats={min:mn,max:mx,mean:sum/data.length};if(mx-mn<5) throw new Error('DTM שטוח מדי — ייתכן כשל בטעינה')}
 function statsForCell(acList,ground,p,gElev){let max=-Infinity,sum=0,n=0,diffSum=0,diffMax=0;for(const ac of acList){for(const f of p.freqs){const Ld=p.useDtm?diffractionLoss(ac,p.altM,ground,gElev,p.losN,f):0;const r=linkBudget(ac,ground,p,f,gElev,Ld);sum+=r.snr;n++;diffSum+=Ld;diffMax=Math.max(diffMax,Ld);if(r.snr>max) max=r.snr}}return{max,mean:n?sum/n:NaN,diffMean:n?diffSum/n:0,diffMax,n}}
+function chiScale(p){const q=Math.max(0.5,Math.min(0.999,p/100));return Math.sqrt(-2*Math.log(1-q))}
+function vecFromGround(g,ac,acAlt,gElev){const east=hav({lat:g.lat,lng:g.lng},{lat:g.lat,lng:ac.lng})*Math.sign(ac.lng-g.lng||1);const north=hav({lat:g.lat,lng:g.lng},{lat:ac.lat,lng:g.lng})*Math.sign(ac.lat-g.lat||1);const up=(acAlt-(gElev||0));return {x:east,y:north,z:up}}
+function vlen(v){return Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z)}
+function angBetween(a,b){const la=vlen(a),lb=vlen(b);if(la<1||lb<1) return 0;const c=Math.max(-1,Math.min(1,(a.x*b.x+a.y*b.y+a.z*b.z)/(la*lb)));return Math.acos(c)}
+function bestAperture(g,samples,acAlt,gElev){if(!samples.length) return {phi:0,R1:0,R2:0};if(samples.length===1){const v=vecFromGround(g,samples[0],acAlt,gElev);const R=vlen(v);return {phi:0,R1:R,R2:R}}const vs=samples.map(s=>vecFromGround(g,s,acAlt,gElev));let best=-1,ii=0,jj=1;for(let i=0;i<vs.length;i++){for(let j=i+1;j<vs.length;j++){const a=angBetween(vs[i],vs[j]);if(a>best){best=a;ii=i;jj=j}}}return {phi:Math.max(0,best),R1:vlen(vs[ii]),R2:vlen(vs[jj])}}
+function ellipseA90(ap,sigmaRad,pPct){const phi=ap.phi,s=Math.sin(phi);if(!(phi>2*Math.PI/180)||s<1e-3) return Infinity;return sigmaRad*Math.sqrt(ap.R1*ap.R1+ap.R2*ap.R2)/s*chiScale(pPct)}
+function fmtKm(m){if(!isFinite(m)) return '∞';if(m>=1000) return (m/1000).toFixed(2)+' km';return m.toFixed(0)+' m'}
 function setBanner(html){$('banner').innerHTML=html}
 function ready(){return path.length>=1&&!!aoi}
 function updateRun(){$('runBtn').disabled=!ready();$('runBtn').textContent=ready()?'Run Analysis':'Run Analysis — חסר מסלול או AOI'}
@@ -166,7 +180,6 @@ function setMode(next){mode=next;['mPath','mAoi'].forEach(id=>$(id).classList.re
 $('mPath').onclick=()=>setMode('path');$('mAoi').onclick=()=>setMode('aoi');
 $('toggleSheet').onclick=()=>$('sheet').classList.toggle('open');
 map.on('click',e=>{if(mode==='path'){const p={lat:e.latlng.lat,lng:e.latlng.lng};const m=L.marker(e.latlng,{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p);redrawPath()}else{aoiCorners.push(e.latlng);if(aoiCorners.length===1)setBanner('<b>AOI:</b> לחצו פינה נגדית.');else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[];}}});
-
 async function runAnalysis(){
   if(!path.length){$('sheet').classList.add('open');$('result').textContent='אין מסלול.';return}
   if(!aoi){$('sheet').classList.add('open');$('result').textContent='אין AOI.';return}
@@ -179,18 +192,9 @@ async function runAnalysis(){
     const pad=aoi.pad(0.2);
     const pathB=L.latLngBounds(path.map(x=>[x.lat,x.lng]));
     const union=pad.extend(pathB.getSouthWest()).extend(pathB.getNorthEast());
-    if(p.useDtm){
-      setBanner('<b>DTM:</b> טוען גבהים…');
-      setProgress(5,'טוען DTM…');
-      await buildDem(union,36,36);
-      setProgress(30,'DTM מוכן · מחשב SNR…');
-      setBanner('<b>DTM:</b> '+dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m');
-    } else {dem=null;demStats={min:0,max:0,mean:0};setProgress(30,'מחשב SNR…')}
-
+    if(p.useDtm){setBanner('<b>DTM:</b> טוען גבהים…');setProgress(5,'טוען DTM…');await buildDem(union,36,36);setProgress(30,'DTM מוכן · מחשב…');setBanner('<b>DTM:</b> '+dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m')} else {dem=null;demStats={min:0,max:0,mean:0};setProgress(30,'מחשב SNR + אליפסה…')}
     const sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;
-    const totalCells=n*n;
-    const cells=[];
-    let done=0;
+    const totalCells=n*n;const cells=[];let done=0;
     for(let iy=0;iy<n;iy++){
       for(let ix=0;ix<n;ix++){
         const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n;
@@ -199,56 +203,59 @@ async function runAnalysis(){
         const gElev=p.useDtm?elevAt(c.lat,c.lng):0;
         const s=statsForCell(ac,c,p,gElev);
         const v=p.view==='max'?s.max:s.mean;
+        const ap=bestAperture(c,samples,p.altM,gElev);
+        const a90=ellipseA90(ap,p.dfSig*Math.PI/180,p.ellP);
         done++;
-        if(isFinite(v)) cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,diffMax:s.diffMax});
-        if(done%Math.max(1,Math.floor(totalCells/40))===0||done===totalCells){
-          setProgress(30+65*(done/totalCells),'מחשב SNR · תא '+done+'/'+totalCells);
-          await yieldUi();
-        }
+        if(isFinite(v)) cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,a90,phi:ap.phi});
+        if(done%Math.max(1,Math.floor(totalCells/40))===0||done===totalCells){setProgress(30+65*(done/totalCells),'SNR + אליפסה · תא '+done+'/'+totalCells);await yieldUi()}
       }
     }
-
-    setProgress(96,'מצייר מפה…');
-    await yieldUi();
+    setProgress(96,'מצייר מפות…');await yieldUi();
+    lastCells=cells;
+    const finiteEll=cells.map(c=>c.a90).filter(isFinite).sort((a,b)=>a-b);
+    const qe=(arr,t)=>arr.length?arr[Math.max(0,Math.min(arr.length-1,Math.floor(t*(arr.length-1))))]:1;
+    let emin=qe(finiteEll,0.05),emax=qe(finiteEll,0.95);
+    if(!(emax>emin)){emin=200;emax=5000}
+    const padE=(emax-emin)*0.08;emin=Math.max(1,emin-padE);emax=emax+padE;
+    ellScale={cmin:emin,cmax:emax};
     const vals=cells.map(c=>c.v).sort((a,b)=>a-b);
     const q=(t)=>vals.length?vals[Math.max(0,Math.min(vals.length-1,Math.floor(t*(vals.length-1))))]:0;
     let cmin=q(0.05),cmax=q(0.95);
     if(cmax-cmin<3){const mid=(cmin+cmax)/2;cmin=mid-3;cmax=mid+3}
     const padC=(cmax-cmin)*0.05;cmin-=padC;cmax+=padC;
-
-    heatLayer.clearLayers();
-    let sum=0,mx=-Infinity,mn=Infinity,diffSum=0,diffed=0;
-    for(const cell of cells){
-      sum+=cell.v;mx=Math.max(mx,cell.v);mn=Math.min(mn,cell.v);diffSum+=cell.diff;
-      if(cell.diff>1) diffed++;
-      const tip=cell.v.toFixed(1)+' dB · elev '+cell.gElev.toFixed(0)+' m · עקיפה '+cell.diff.toFixed(1)+' dB';
-      L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:color(cell.v,cmin,cmax)}).bindTooltip(tip,{sticky:true}).addTo(heatLayer);
-    }
-    const avg=cells.length?sum/cells.length:NaN;
-    const avgDiff=cells.length?diffSum/cells.length:0;
-    $('kAvg').textContent=isFinite(avg)?avg.toFixed(1)+' dB':'-';
-    $('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';
-    $('kDiff').textContent=avgDiff.toFixed(1)+' dB';
-    $('legMin').textContent=cmin.toFixed(1);
-    $('legMax').textContent=cmax.toFixed(1);
-    $('legMid').textContent=((cmin+cmax)/2).toFixed(1);
-    hasAnalysis=true;$('sheet').classList.add('open');
-    const altKft=(p.altM/304.8).toFixed(1);
-    const elapsed=((performance.now()-progT0)/1000).toFixed(1);
-    $('result').innerHTML='<b>Analysis complete</b> · '+elapsed+' שנ׳<br>גובה: <b>'+altKft+' KFT</b> · DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br>תאים: '+cells.length+' · עם עקיפה>1dB: '+diffed+'<br>SNR ממוצע/מקס/מינ: <b>'+(isFinite(avg)?avg.toFixed(2):'-')+'</b> / '+(isFinite(mx)?mx.toFixed(2):'-')+' / '+(isFinite(mn)?mn.toFixed(2):'-')+' dB<br>הפסד עקיפה ממוצע: <b>'+avgDiff.toFixed(2)+' dB</b><br>סקאלת צבע: '+cmin.toFixed(1)+' … '+cmax.toFixed(1)+' dB';
-    setBanner('<b>האנליזה רצה</b> ('+elapsed+' שנ׳). צבע לפי SNR. עקיפה מחלישה — לא מאפסת.');
-    setProgress(100,'הושלם');
-    map.fitBounds(aoi.pad(0.08));
-    setTimeout(()=>showProgress(false),900);
-  }catch(err){
-    $('sheet').classList.add('open');
-    $('result').textContent='שגיאה: '+(err.message||err);
-    setBanner('<b>שגיאה.</b> נסו שוב.');
-    showProgress(false);
-  }finally{updateRun()}
+    snrScale={cmin,cmax};
+    let sum=0,mx=-Infinity,mn=Infinity,diffSum=0,eSum=0,eN=0,phiSum=0,eMx=0;
+    for(const cell of cells){sum+=cell.v;mx=Math.max(mx,cell.v);mn=Math.min(mn,cell.v);diffSum+=cell.diff;if(isFinite(cell.a90)){eSum+=cell.a90;eN++;eMx=Math.max(eMx,cell.a90)}phiSum+=cell.phi||0}
+    const avg=cells.length?sum/cells.length:NaN,avgDiff=cells.length?diffSum/cells.length:0,avgE=eN?eSum/eN:NaN,avgPhi=cells.length?(phiSum/cells.length)*180/Math.PI:0;
+    $('kAvg').textContent=isFinite(avg)?avg.toFixed(1)+' dB':'-';$('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';$('kDiff').textContent=avgDiff.toFixed(1)+' dB';$('kEll').textContent=isFinite(avgE)?fmtKm(avgE):'∞';$('kPhi').textContent=avgPhi.toFixed(0)+'°';
+    hasAnalysis=true;$('sheet').classList.add('open');paintHeat('snr');
+    const altKft=(p.altM/304.8).toFixed(1),elapsed=((performance.now()-progT0)/1000).toFixed(1);
+    $('result').innerHTML='<b>שתי אנליזות הושלמו</b> · '+elapsed+' שנ׳<br>גובה: <b>'+altKft+' KFT</b> · DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br><b>1 · SNR</b> ממוצע/מקס/מינ: <b>'+(isFinite(avg)?avg.toFixed(2):'-')+'</b> / '+(isFinite(mx)?mx.toFixed(2):'-')+' / '+(isFinite(mn)?mn.toFixed(2):'-')+' dB · עקיפה '+avgDiff.toFixed(2)+' dB<br><b>2 · אליפסת DF '+p.ellP+'%</b> · σ='+p.dfSig+'° · דגימות מסלול '+samples.length+'<br>חצי-ציר ארוך ממוצע: <b>'+(isFinite(avgE)?fmtKm(avgE):'∞')+'</b> · מקס '+fmtKm(eMx)+'<br>מפתח זוויתי ממוצע: <b>'+avgPhi.toFixed(1)+'°</b><br>לחצו «מפת אליפסה» למפת חום של a90 (ירוק=קטן)';
+    setBanner('<b>SNR + אליפסה מוכנים.</b> החליפו מפה בכפתורים.');
+    setProgress(100,'הושלם');map.fitBounds(aoi.pad(0.08));setTimeout(()=>showProgress(false),900);
+  }catch(err){$('sheet').classList.add('open');$('result').textContent='שגיאה: '+(err.message||err);setBanner('<b>שגיאה.</b> נסו שוב.');showProgress(false)}finally{updateRun()}
 }
+function paintHeat(kind){
+  heatKind=kind;
+  ['mSnr','mEll'].forEach(id=>{const el=$(id);if(el)el.classList.remove('layerOn')});
+  if(kind==='ell') $('mEll').classList.add('layerOn'); else $('mSnr').classList.add('layerOn');
+  heatLayer.clearLayers();if(!lastCells.length) return;
+  if(kind==='ell'){
+    const {cmin,cmax}=ellScale;
+    $('legMin').textContent=fmtKm(cmax);$('legMax').textContent=fmtKm(cmin);$('legMid').textContent=fmtKm((cmin+cmax)/2);
+    document.querySelector('.legend b').textContent='חצי-ציר a90 — ירוק=קטן';
+    for(const cell of lastCells){const val=isFinite(cell.a90)?cell.a90:cmax;const col=color(-val,-cmax,-cmin);const tip='a90 '+fmtKm(cell.a90)+' · מפתח '+(cell.phi*180/Math.PI).toFixed(1)+'° · SNR '+cell.v.toFixed(1)+' dB';L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:col}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}
+  }else{
+    const {cmin,cmax}=snrScale;
+    $('legMin').textContent=cmin.toFixed(1);$('legMax').textContent=cmax.toFixed(1);$('legMid').textContent=((cmin+cmax)/2).toFixed(1);
+    document.querySelector('.legend b').textContent='SNR (dB) — סקאלה אוטומטית';
+    for(const cell of lastCells){const tip=cell.v.toFixed(1)+' dB · a90 '+fmtKm(cell.a90)+' · מפתח '+(cell.phi*180/Math.PI).toFixed(1)+'°';L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:color(cell.v,cmin,cmax)}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}
+  }
+}
+$('mSnr').onclick=()=>{if(hasAnalysis)paintHeat('snr')};
+$('mEll').onclick=()=>{if(hasAnalysis)paintHeat('ell')};
 $('runBtn').onclick=runAnalysis;
-$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;elevCache={};showProgress(false);$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('result').textContent='נוקה.';setMode('path');updateRun()}
+$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;elevCache={};lastCells=[];showProgress(false);$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('kEll').textContent='-';$('kPhi').textContent='-';$('result').textContent='נוקה.';setMode('path');updateRun()}
 $('saveBtn').onclick=()=>{localStorage.setItem('fp-mission',JSON.stringify({path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null}));$('result').textContent='נשמר.'}
 $('loadBtn').onclick=()=>{const raw=localStorage.getItem('fp-mission');if(!raw){$('result').textContent='אין שמירה.';return}const data=JSON.parse(raw);$('clearBtn').onclick();(data.path||[]).forEach(p=>{const m=L.marker([p.lat,p.lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p)});redrawPath();if(data.aoi)setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]));$('result').textContent='נטען.';}
 updateRun();
