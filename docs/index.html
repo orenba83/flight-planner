@@ -37,10 +37,18 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .row button{border:0;border-radius:12px;padding:10px;background:#243044;color:#fff}
 .result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.5;max-height:26vh;overflow:auto}
 .hint{color:var(--muted);font-size:12px}
+.progress-wrap{position:fixed;left:12px;right:12px;bottom:calc(150px + var(--safe));z-index:45;display:none;background:#121a2bf5;border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 8px 28px #000a}
+.progress-wrap.show{display:block}
+.progress-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px;font-size:13px}
+.progress-top b{color:#93c5fd}
+.progress-track{height:12px;border-radius:99px;background:#1e293b;overflow:hidden}
+.progress-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .15s linear}
+.progress-eta{margin-top:6px;font-size:12px;color:var(--muted)}
 @media (min-width:900px){
   .sheet{width:360px;left:auto;top:0;bottom:0;right:0;max-height:none;border-radius:0;transform:none;padding:16px}
   .handle,.peek{display:none}.modes{right:376px;top:64px}.banner{right:376px}.legend{right:376px;left:auto;bottom:16px}
   .run{left:auto;right:376px;width:340px;bottom:16px}
+  .progress-wrap{left:auto;right:376px;width:340px;bottom:80px}
 }
 </style>
 </head>
@@ -63,6 +71,11 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div style="margin-top:6px;color:#9ca3af">אדום=חלש · ירוק=חזק</div>
 </div>
 <button class="run" id="runBtn">Run Analysis</button>
+<div class="progress-wrap" id="progWrap">
+<div class="progress-top"><span id="progLabel">מריץ אנליזה…</span><b id="progPct">0%</b></div>
+<div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
+<div class="progress-eta" id="progEta">מחשב זמן משוער…</div>
+</div>
 <aside class="sheet" id="sheet">
 <div class="handle"></div>
 <div class="sheet-head"><h2 style="margin:0;font-size:15px">פרמטרים ותוצאות</h2>
@@ -90,7 +103,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <label class="check"><input id="useDtm" type="checkbox" checked> הפסד עקיפה לפי DTM (knife-edge)</label>
 </div>
 <div class="row"><button id="clearBtn">נקה</button><button id="saveBtn">שמור</button><button id="loadBtn">טען</button></div>
-<p class="hint">SNR = תקציב קישור − FSPL(מרחק 3D) − הפסד עקיפה. אין «חסום מוחלט»: הר מחליש לפי ITU knife-edge. הסקאלה מתאימה את עצמה לתוצאות.</p>
+<p class="hint">SNR = תקציב קישור − FSPL(מרחק 3D) − הפסד עקיפה. הסקאלה מתאימה את עצמה לתוצאות.</p>
 <div class="result" id="result">ציירו מסלול ו-AOI ואז Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -102,161 +115,54 @@ const map=L.map('map',{zoomControl:true}).setView([31.8,35.0],7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'OSM'}).addTo(map);
 const heatLayer=L.layerGroup().addTo(map),aoiLayer=L.layerGroup().addTo(map),pathLayer=L.layerGroup().addTo(map);
 let mode='path',path=[],markers=[],aoi=null,aoiCorners=[],hasAnalysis=false,dem=null,elevCache={},dtmSource='',demStats={min:0,max:0,mean:0};
+let progT0=0,progLastUi=0;
+function showProgress(on){const w=$('progWrap');if(!w)return;w.classList.toggle('show',!!on);if(on){progT0=performance.now();progLastUi=0;setProgress(0,'מתחיל…')}}
+function setProgress(pct,label){
+  pct=Math.max(0,Math.min(100,pct));
+  const now=performance.now();
+  if(pct<100&&now-progLastUi<80) return;
+  progLastUi=now;
+  if(label)$('progLabel').textContent=label;
+  $('progPct').textContent=Math.round(pct)+'%';
+  $('progFill').style.width=pct+'%';
+  const elapsed=(now-progT0)/1000;
+  if(pct>=0.5&&pct<100){
+    const eta=elapsed*(100-pct)/Math.max(pct,0.01);
+    const m=Math.floor(eta/60),s=Math.max(0,Math.round(eta%60));
+    $('progEta').textContent=m>0?('נותרו ~'+m+' דק׳ '+s+' שנ׳ · עברו '+elapsed.toFixed(0)+' שנ׳'):('נותרו ~'+s+' שנ׳ · עברו '+elapsed.toFixed(0)+' שנ׳');
+  }else if(pct>=100){
+    $('progEta').textContent='הושלם ב־'+elapsed.toFixed(1)+' שנ׳';
+  }else{
+    $('progEta').textContent='מחשב זמן משוער…';
+  }
+}
+function yieldUi(){return new Promise(r=>setTimeout(r,0))}
 
 function interpGain(f){if(f<=GAIN[0][0])return GAIN[0][1];if(f>=GAIN[GAIN.length-1][0])return GAIN[GAIN.length-1][1];for(let i=1;i<GAIN.length;i++){const [f0,g0]=GAIN[i-1],[f1,g1]=GAIN[i];if(f<=f1)return g0+(g1-g0)*(f-f0)/(f1-f0)}return GAIN[GAIN.length-1][1]}
 function hav(a,b){const p=Math.PI/180,dLat=(b.lat-a.lat)*p,dLon=(b.lng-a.lng)*p,x=Math.sin(dLat/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)))}
 function params(){const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(10,+$('gridn').value|0),losN:Math.max(6,+$('lossamp').value|0),view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0),useDtm:$('useDtm').checked}}
-
-/* Free-space link budget; distance enters via 3D slant range FSPL */
-function linkBudget(ac,ground,p,freq,gElev,extraLoss){
-  const horiz=hav(ac,ground);
-  const dh=p.altM-(gElev||0);
-  const d=Math.sqrt(horiz*horiz+dh*dh);
-  const fspl=d<=1?0:20*Math.log10(4*Math.PI*d*(freq*1e6)/C);
-  const gr=interpGain(freq);
-  const noise=-174+10*Math.log10(p.bwHz)+p.nf;
-  const Lextra=extraLoss||0;
-  const pr=p.pt+gr-fspl-p.lpol-p.lsys-Lextra;
-  return{d,horiz,fspl,gr,noise,pr,snr:pr-noise,freq,Lextra};
-}
-
+function linkBudget(ac,ground,p,freq,gElev,extraLoss){const horiz=hav(ac,ground);const dh=p.altM-(gElev||0);const d=Math.sqrt(horiz*horiz+dh*dh);const fspl=d<=1?0:20*Math.log10(4*Math.PI*d*(freq*1e6)/C);const gr=interpGain(freq);const noise=-174+10*Math.log10(p.bwHz)+p.nf;const Lextra=extraLoss||0;const pr=p.pt+gr-fspl-p.lpol-p.lsys-Lextra;return{d,horiz,fspl,gr,noise,pr,snr:pr-noise,freq,Lextra}}
 function resample(pts,n){if(!pts.length)return[];if(pts.length===1||n<=1)return[pts[0]];const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));const total=cum[cum.length-1];if(total<=0)return[pts[0]];const out=[];for(let k=0;k<n;k++){const target=total*k/(n-1);let seg=1;while(seg<cum.length-1&&cum[seg]<target)seg++;const a=pts[seg-1],b=pts[seg],len=cum[seg]-cum[seg-1],t=len?(target-cum[seg-1])/len:0;out.push({lat:a.lat+t*(b.lat-a.lat),lng:a.lng+t*(b.lng-a.lng)})}return out}
 function color(v,vmin,vmax){const x=Math.max(0,Math.min(1,(v-vmin)/Math.max(vmax-vmin,1e-9)));const s=[[0,[213,43,30]],[.35,[247,148,30]],[.55,[255,221,51]],[.75,[140,200,60]],[1,[46,204,64]]];for(let i=0;i<s.length-1;i++){if(x<=s[i+1][0]){const t=(x-s[i][0])/(s[i+1][0]-s[i][0]||1);const c=s[i][1].map((a,k)=>Math.round(a+t*(s[i+1][1][k]-a)));return 'rgb('+c[0]+','+c[1]+','+c[2]+')'}}return 'rgb(46,204,64)'}
-
-/* ITU-R P.526 single knife-edge diffraction loss (dB) from Fresnel parameter v */
-function knifeEdgeLoss(v){
-  if(v<=-0.78) return 0;
-  return 6.9+20*Math.log10(Math.sqrt((v-0.1)*(v-0.1)+1)+v-0.1);
-}
-
-/* Scan path: max obstacle relative to LOS → diffraction loss. Distance affects v via d1,d2. */
-function diffractionLoss(ac,acAlt,ground,gElev,losN,freqMHz){
-  const total=hav(ac,ground);
-  if(total<30) return 0;
-  const lam=C/(Math.max(freqMHz,30)*1e6);
-  const steps=Math.max(8,Math.min(48,losN|0,Math.ceil(total/600)));
-  let vmax=-1e9;
-  for(let k=1;k<steps;k++){
-    const t=k/steps;
-    const lat=ac.lat+(ground.lat-ac.lat)*t;
-    const lng=ac.lng+(ground.lng-ac.lng)*t;
-    const terr=elevAt(lat,lng);
-    const d1=total*t,d2=total-d1;
-    if(d1<1||d2<1) continue;
-    const bulge=(d1*d2)/(2*K_EFF*R);
-    const ray=acAlt+(gElev-acAlt)*t;
-    const h=(terr+bulge)-ray; // >0 = obstacle above geometric LOS
-    const v=h*Math.sqrt(2/lam*(1/d1+1/d2));
-    if(v>vmax) vmax=v;
-  }
-  if(vmax<=-0.78) return 0;
-  return Math.min(knifeEdgeLoss(vmax),60); // cap extreme deep diffraction
-}
-
+function knifeEdgeLoss(v){if(v<=-0.78) return 0;return 6.9+20*Math.log10(Math.sqrt((v-0.1)*(v-0.1)+1)+v-0.1)}
+function diffractionLoss(ac,acAlt,ground,gElev,losN,freqMHz){const total=hav(ac,ground);if(total<30) return 0;const lam=C/(Math.max(freqMHz,30)*1e6);const steps=Math.max(8,Math.min(48,losN|0,Math.ceil(total/600)));let vmax=-1e9;for(let k=1;k<steps;k++){const t=k/steps;const lat=ac.lat+(ground.lat-ac.lat)*t;const lng=ac.lng+(ground.lng-ac.lng)*t;const terr=elevAt(lat,lng);const d1=total*t,d2=total-d1;if(d1<1||d2<1) continue;const bulge=(d1*d2)/(2*K_EFF*R);const ray=acAlt+(gElev-acAlt)*t;const h=(terr+bulge)-ray;const v=h*Math.sqrt(2/lam*(1/d1+1/d2));if(v>vmax) vmax=v}if(vmax<=-0.78) return 0;return Math.min(knifeEdgeLoss(vmax),60)}
 function lon2tile(lon,z){return Math.floor((lon+180)/360*Math.pow(2,z))}
 function lat2tile(lat,z){const r=lat*Math.PI/180;return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z))}
 function tile2lon(x,z){return x/Math.pow(2,z)*360-180}
 function tile2lat(y,z){const n=Math.PI-2*Math.PI*y/Math.pow(2,z);return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n)))}
-
-async function elevFromOpenElevation(points){
-  for(let i=0;i<points.length;i+=80){
-    const chunk=points.slice(i,i+80);
-    const body={locations:chunk.map(p=>({latitude:p.lat,longitude:p.lng}))};
-    const res=await fetch('https://api.open-elevation.com/api/v1/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!res.ok) throw new Error('open-elevation '+res.status);
-    const js=await res.json();
-    (js.results||[]).forEach((r,idx)=>{const p=chunk[idx];elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=Number.isFinite(r.elevation)?r.elevation:0});
-  }
-  return 'Open-Elevation';
-}
-async function elevFromOpenTopo(points){
-  for(let i=0;i<points.length;i+=50){
-    const chunk=points.slice(i,i+50);
-    const loc=chunk.map(p=>p.lat.toFixed(5)+','+p.lng.toFixed(5)).join('|');
-    const res=await fetch('https://api.opentopodata.org/v1/srtm30m?locations='+loc);
-    if(!res.ok) throw new Error('opentopo '+res.status);
-    const js=await res.json();
-    (js.results||[]).forEach((r,idx)=>{const p=chunk[idx];elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=Number.isFinite(r.elevation)?r.elevation:0});
-    if(i+50<points.length) await new Promise(r=>setTimeout(r,1100));
-  }
-  return 'OpenTopoData SRTM';
-}
-async function elevFromTerrarium(points){
-  const z=11;const tiles={};
-  for(const p of points){const x=lon2tile(p.lng,z),y=lat2tile(p.lat,z);const key=x+','+y;if(!tiles[key])tiles[key]={x,y,pts:[]};tiles[key].pts.push(p)}
-  for(const key of Object.keys(tiles)){
-    const t=tiles[key];
-    const res=await fetch('https://s3.amazonaws.com/elevation-tiles-prod/terrarium/'+z+'/'+t.x+'/'+t.y+'.png');
-    if(!res.ok) throw new Error('terrarium '+res.status);
-    const bmp=await createImageBitmap(await res.blob());
-    const canvas=document.createElement('canvas');canvas.width=bmp.width;canvas.height=bmp.height;
-    const ctx=canvas.getContext('2d');ctx.drawImage(bmp,0,0);
-    const img=ctx.getImageData(0,0,canvas.width,canvas.height).data;
-    const west=tile2lon(t.x,z),east=tile2lon(t.x+1,z),north=tile2lat(t.y,z),south=tile2lat(t.y+1,z);
-    for(const p of t.pts){
-      const px=Math.max(0,Math.min(canvas.width-1,Math.floor((p.lng-west)/(east-west)*canvas.width)));
-      const py=Math.max(0,Math.min(canvas.height-1,Math.floor((north-p.lat)/(north-south)*canvas.height)));
-      const i=(py*canvas.width+px)*4;
-      elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=img[i]*256+img[i+1]+img[i+2]/256-32768;
-    }
-  }
-  return 'Terrarium DEM';
-}
-async function fetchElevations(points){
-  const need=[];
-  for(const p of points){const k=p.lat.toFixed(4)+','+p.lng.toFixed(4);if(!(k in elevCache))need.push({lat:p.lat,lng:p.lng})}
-  if(!need.length) return dtmSource||'cache';
-  const errs=[];
-  try{return await elevFromOpenElevation(need)}catch(e){errs.push(e.message)}
-  try{return await elevFromOpenTopo(need)}catch(e){errs.push(e.message)}
-  try{return await elevFromTerrarium(need)}catch(e){errs.push(e.message)}
-  throw new Error('כל מקורות DTM נכשלו: '+errs.join(' | '));
-}
-function elevAt(lat,lng){
-  if(dem){
-    const x=(lng-dem.minLng)/Math.max(dem.dLng,1e-12);
-    const y=(lat-dem.minLat)/Math.max(dem.dLat,1e-12);
-    const x0=Math.max(0,Math.min(dem.nx-2,Math.floor(x)));
-    const y0=Math.max(0,Math.min(dem.ny-2,Math.floor(y)));
-    const tx=Math.max(0,Math.min(1,x-x0)),ty=Math.max(0,Math.min(1,y-y0));
-    const i=y0*dem.nx+x0;
-    return dem.data[i]*(1-tx)*(1-ty)+dem.data[i+1]*tx*(1-ty)+dem.data[i+dem.nx]*(1-tx)*ty+dem.data[i+dem.nx+1]*tx*ty;
-  }
-  return elevCache[lat.toFixed(4)+','+lng.toFixed(4)]||0;
-}
-async function buildDem(bounds,nx,ny){
-  const minLat=bounds.getSouth(),maxLat=bounds.getNorth(),minLng=bounds.getWest(),maxLng=bounds.getEast();
-  const dLat=(maxLat-minLat)/Math.max(1,ny-1),dLng=(maxLng-minLng)/Math.max(1,nx-1);
-  const pts=[];
-  for(let iy=0;iy<ny;iy++) for(let ix=0;ix<nx;ix++) pts.push({lat:minLat+iy*dLat,lng:minLng+ix*dLng});
-  dtmSource=await fetchElevations(pts);
-  const data=new Float32Array(nx*ny);
-  let mn=Infinity,mx=-Infinity,sum=0;
-  pts.forEach((p,i)=>{const e=Number.isFinite(elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)])?elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]:0;data[i]=e;sum+=e;mn=Math.min(mn,e);mx=Math.max(mx,e)});
-  dem={minLat,minLng,dLat,dLng,nx,ny,data};
-  demStats={min:mn,max:mx,mean:sum/data.length};
-  if(mx-mn<5) throw new Error('DTM שטוח מדי — ייתכן כשל בטעינה');
-}
-
-function statsForCell(acList,ground,p,gElev){
-  let max=-Infinity,sum=0,n=0,diffSum=0,diffMax=0;
-  for(const ac of acList){
-    for(const f of p.freqs){
-      const Ld=p.useDtm?diffractionLoss(ac,p.altM,ground,gElev,p.losN,f):0;
-      const r=linkBudget(ac,ground,p,f,gElev,Ld);
-      sum+=r.snr;n++;diffSum+=Ld;diffMax=Math.max(diffMax,Ld);
-      if(r.snr>max) max=r.snr;
-    }
-  }
-  return{max,mean:n?sum/n:NaN,diffMean:n?diffSum/n:0,diffMax,n};
-}
-
+async function elevFromOpenElevation(points){const total=points.length||1;for(let i=0;i<points.length;i+=80){const chunk=points.slice(i,i+80);const body={locations:chunk.map(p=>({latitude:p.lat,longitude:p.lng}))};const res=await fetch('https://api.open-elevation.com/api/v1/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!res.ok) throw new Error('open-elevation '+res.status);const js=await res.json();(js.results||[]).forEach((r,idx)=>{const p=chunk[idx];elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=Number.isFinite(r.elevation)?r.elevation:0});setProgress(5+25*((i+chunk.length)/total),'טוען DTM…');await yieldUi()}return 'Open-Elevation'}
+async function elevFromOpenTopo(points){for(let i=0;i<points.length;i+=50){const chunk=points.slice(i,i+50);const loc=chunk.map(p=>p.lat.toFixed(5)+','+p.lng.toFixed(5)).join('|');const res=await fetch('https://api.opentopodata.org/v1/srtm30m?locations='+loc);if(!res.ok) throw new Error('opentopo '+res.status);const js=await res.json();(js.results||[]).forEach((r,idx)=>{const p=chunk[idx];elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=Number.isFinite(r.elevation)?r.elevation:0});setProgress(5+25*((i+chunk.length)/Math.max(points.length,1)),'טוען DTM (OpenTopo)…');if(i+50<points.length) await new Promise(r=>setTimeout(r,1100))}return 'OpenTopoData SRTM'}
+async function elevFromTerrarium(points){const z=11;const tiles={};for(const p of points){const x=lon2tile(p.lng,z),y=lat2tile(p.lat,z);const key=x+','+y;if(!tiles[key])tiles[key]={x,y,pts:[]};tiles[key].pts.push(p)}const keys=Object.keys(tiles);for(let ti=0;ti<keys.length;ti++){const t=tiles[keys[ti]];const res=await fetch('https://s3.amazonaws.com/elevation-tiles-prod/terrarium/'+z+'/'+t.x+'/'+t.y+'.png');if(!res.ok) throw new Error('terrarium '+res.status);const bmp=await createImageBitmap(await res.blob());const canvas=document.createElement('canvas');canvas.width=bmp.width;canvas.height=bmp.height;const ctx=canvas.getContext('2d');ctx.drawImage(bmp,0,0);const img=ctx.getImageData(0,0,canvas.width,canvas.height).data;const west=tile2lon(t.x,z),east=tile2lon(t.x+1,z),north=tile2lat(t.y,z),south=tile2lat(t.y+1,z);for(const p of t.pts){const px=Math.max(0,Math.min(canvas.width-1,Math.floor((p.lng-west)/(east-west)*canvas.width)));const py=Math.max(0,Math.min(canvas.height-1,Math.floor((north-p.lat)/(north-south)*canvas.height)));const i=(py*canvas.width+px)*4;elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=img[i]*256+img[i+1]+img[i+2]/256-32768}setProgress(5+25*((ti+1)/keys.length),'טוען DTM (Terrarium)…');await yieldUi()}return 'Terrarium DEM'}
+async function fetchElevations(points){const need=[];for(const p of points){const k=p.lat.toFixed(4)+','+p.lng.toFixed(4);if(!(k in elevCache))need.push({lat:p.lat,lng:p.lng})}if(!need.length) return dtmSource||'cache';const errs=[];try{return await elevFromOpenElevation(need)}catch(e){errs.push(e.message)}try{return await elevFromOpenTopo(need)}catch(e){errs.push(e.message)}try{return await elevFromTerrarium(need)}catch(e){errs.push(e.message)}throw new Error('כל מקורות DTM נכשלו: '+errs.join(' | '))}
+function elevAt(lat,lng){if(dem){const x=(lng-dem.minLng)/Math.max(dem.dLng,1e-12);const y=(lat-dem.minLat)/Math.max(dem.dLat,1e-12);const x0=Math.max(0,Math.min(dem.nx-2,Math.floor(x)));const y0=Math.max(0,Math.min(dem.ny-2,Math.floor(y)));const tx=Math.max(0,Math.min(1,x-x0)),ty=Math.max(0,Math.min(1,y-y0));const i=y0*dem.nx+x0;return dem.data[i]*(1-tx)*(1-ty)+dem.data[i+1]*tx*(1-ty)+dem.data[i+dem.nx]*(1-tx)*ty+dem.data[i+dem.nx+1]*tx*ty}return elevCache[lat.toFixed(4)+','+lng.toFixed(4)]||0}
+async function buildDem(bounds,nx,ny){const minLat=bounds.getSouth(),maxLat=bounds.getNorth(),minLng=bounds.getWest(),maxLng=bounds.getEast();const dLat=(maxLat-minLat)/Math.max(1,ny-1),dLng=(maxLng-minLng)/Math.max(1,nx-1);const pts=[];for(let iy=0;iy<ny;iy++) for(let ix=0;ix<nx;ix++) pts.push({lat:minLat+iy*dLat,lng:minLng+ix*dLng});dtmSource=await fetchElevations(pts);const data=new Float32Array(nx*ny);let mn=Infinity,mx=-Infinity,sum=0;pts.forEach((p,i)=>{const e=Number.isFinite(elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)])?elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]:0;data[i]=e;sum+=e;mn=Math.min(mn,e);mx=Math.max(mx,e)});dem={minLat,minLng,dLat,dLng,nx,ny,data};demStats={min:mn,max:mx,mean:sum/data.length};if(mx-mn<5) throw new Error('DTM שטוח מדי — ייתכן כשל בטעינה')}
+function statsForCell(acList,ground,p,gElev){let max=-Infinity,sum=0,n=0,diffSum=0,diffMax=0;for(const ac of acList){for(const f of p.freqs){const Ld=p.useDtm?diffractionLoss(ac,p.altM,ground,gElev,p.losN,f):0;const r=linkBudget(ac,ground,p,f,gElev,Ld);sum+=r.snr;n++;diffSum+=Ld;diffMax=Math.max(diffMax,Ld);if(r.snr>max) max=r.snr}}return{max,mean:n?sum/n:NaN,diffMean:n?diffSum/n:0,diffMax,n}}
 function setBanner(html){$('banner').innerHTML=html}
 function ready(){return path.length>=1&&!!aoi}
 function updateRun(){$('runBtn').disabled=!ready();$('runBtn').textContent=ready()?'Run Analysis':'Run Analysis — חסר מסלול או AOI'}
-function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-';updateRun();if(!aoi)setBanner('<b>שלב 2:</b> ציירו AOI בשתי לחיצות.');else if(!hasAnalysis)setBanner('<b>שלב 3:</b> לחצו Run Analysis.');}
-function setAoi(bounds){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer);updateRun();if(ready())setBanner('<b>מוכן:</b> לחצו Run Analysis.');}
-function setMode(next){mode=next;['mPath','mAoi'].forEach(id=>$(id).classList.remove('active'));$(next==='path'?'mPath':'mAoi').classList.add('active');aoiCorners=[];if(next==='path')setBanner('<b>מצב מסלול:</b> לחצו על המפה.');if(next==='aoi')setBanner('<b>מצב AOI:</b> שתי פינות מלבן.');}
+function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-';updateRun();if(!aoi)setBanner('<b>שלב 2:</b> ציירו AOI בשתי לחיצות.');else if(!hasAnalysis)setBanner('<b>שלב 3:</b> לחצו Run Analysis.')}
+function setAoi(bounds){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer);updateRun();if(ready())setBanner('<b>מוכן:</b> לחצו Run Analysis.')}
+function setMode(next){mode=next;['mPath','mAoi'].forEach(id=>$(id).classList.remove('active'));$(next==='path'?'mPath':'mAoi').classList.add('active');aoiCorners=[];if(next==='path')setBanner('<b>מצב מסלול:</b> לחצו על המפה.');if(next==='aoi')setBanner('<b>מצב AOI:</b> שתי פינות מלבן.')}
 $('mPath').onclick=()=>setMode('path');$('mAoi').onclick=()=>setMode('aoi');
 $('toggleSheet').onclick=()=>$('sheet').classList.toggle('open');
 map.on('click',e=>{if(mode==='path'){const p={lat:e.latlng.lat,lng:e.latlng.lng};const m=L.marker(e.latlng,{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p);redrawPath()}else{aoiCorners.push(e.latlng);if(aoiCorners.length===1)setBanner('<b>AOI:</b> לחצו פינה נגדית.');else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[];}}});
@@ -265,7 +171,8 @@ async function runAnalysis(){
   if(!path.length){$('sheet').classList.add('open');$('result').textContent='אין מסלול.';return}
   if(!aoi){$('sheet').classList.add('open');$('result').textContent='אין AOI.';return}
   const p=params();
-  $('runBtn').disabled=true;$('runBtn').textContent='Loading DTM...';
+  $('runBtn').disabled=true;$('runBtn').textContent='Running…';
+  showProgress(true);setProgress(1,'מתחיל אנליזה…');
   try{
     const samples=resample(path,p.samples);
     const ac=p.view==='single'?[samples[Math.min(samples.length-1,p.wpIndex-1)]]:samples;
@@ -273,14 +180,17 @@ async function runAnalysis(){
     const pathB=L.latLngBounds(path.map(x=>[x.lat,x.lng]));
     const union=pad.extend(pathB.getSouthWest()).extend(pathB.getNorthEast());
     if(p.useDtm){
-      setBanner('<b>DTM:</b> טוען גבהים...');
+      setBanner('<b>DTM:</b> טוען גבהים…');
+      setProgress(5,'טוען DTM…');
       await buildDem(union,36,36);
+      setProgress(30,'DTM מוכן · מחשב SNR…');
       setBanner('<b>DTM:</b> '+dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m');
-    } else {dem=null;demStats={min:0,max:0,mean:0}}
+    } else {dem=null;demStats={min:0,max:0,mean:0};setProgress(30,'מחשב SNR…')}
 
     const sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;
+    const totalCells=n*n;
     const cells=[];
-    $('runBtn').textContent='Computing SNR...';
+    let done=0;
     for(let iy=0;iy<n;iy++){
       for(let ix=0;ix<n;ix++){
         const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n;
@@ -289,17 +199,21 @@ async function runAnalysis(){
         const gElev=p.useDtm?elevAt(c.lat,c.lng):0;
         const s=statsForCell(ac,c,p,gElev);
         const v=p.view==='max'?s.max:s.mean;
-        if(!isFinite(v)) continue;
-        cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,diffMax:s.diffMax});
+        done++;
+        if(isFinite(v)) cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,diffMax:s.diffMax});
+        if(done%Math.max(1,Math.floor(totalCells/40))===0||done===totalCells){
+          setProgress(30+65*(done/totalCells),'מחשב SNR · תא '+done+'/'+totalCells);
+          await yieldUi();
+        }
       }
     }
 
-    // Auto color scale from results (robust range)
+    setProgress(96,'מצייר מפה…');
+    await yieldUi();
     const vals=cells.map(c=>c.v).sort((a,b)=>a-b);
-    const q=(t)=>vals[Math.max(0,Math.min(vals.length-1,Math.floor(t*(vals.length-1))))];
+    const q=(t)=>vals.length?vals[Math.max(0,Math.min(vals.length-1,Math.floor(t*(vals.length-1))))]:0;
     let cmin=q(0.05),cmax=q(0.95);
     if(cmax-cmin<3){const mid=(cmin+cmax)/2;cmin=mid-3;cmax=mid+3}
-    // small padding
     const padC=(cmax-cmin)*0.05;cmin-=padC;cmax+=padC;
 
     heatLayer.clearLayers();
@@ -320,17 +234,21 @@ async function runAnalysis(){
     $('legMid').textContent=((cmin+cmax)/2).toFixed(1);
     hasAnalysis=true;$('sheet').classList.add('open');
     const altKft=(p.altM/304.8).toFixed(1);
-    $('result').innerHTML='<b>Analysis complete</b><br>גובה: <b>'+altKft+' KFT</b> · DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br>תאים: '+cells.length+' · עם עקיפה>1dB: '+diffed+'<br>SNR ממוצע/מקס/מינ: <b>'+avg.toFixed(2)+'</b> / '+mx.toFixed(2)+' / '+mn.toFixed(2)+' dB<br>הפסד עקיפה ממוצע: <b>'+avgDiff.toFixed(2)+' dB</b><br>סקאלת צבע אוטומטית: '+cmin.toFixed(1)+' … '+cmax.toFixed(1)+' dB<br>FSPL לפי מרחק 3D + עקיפה לפי הרים (ITU knife-edge)';
-    setBanner('<b>האנליזה רצה.</b> צבע לפי SNR (אוטומטי). עקיפה מחלישה — לא מאפסת.');
+    const elapsed=((performance.now()-progT0)/1000).toFixed(1);
+    $('result').innerHTML='<b>Analysis complete</b> · '+elapsed+' שנ׳<br>גובה: <b>'+altKft+' KFT</b> · DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br>תאים: '+cells.length+' · עם עקיפה>1dB: '+diffed+'<br>SNR ממוצע/מקס/מינ: <b>'+(isFinite(avg)?avg.toFixed(2):'-')+'</b> / '+(isFinite(mx)?mx.toFixed(2):'-')+' / '+(isFinite(mn)?mn.toFixed(2):'-')+' dB<br>הפסד עקיפה ממוצע: <b>'+avgDiff.toFixed(2)+' dB</b><br>סקאלת צבע: '+cmin.toFixed(1)+' … '+cmax.toFixed(1)+' dB';
+    setBanner('<b>האנליזה רצה</b> ('+elapsed+' שנ׳). צבע לפי SNR. עקיפה מחלישה — לא מאפסת.');
+    setProgress(100,'הושלם');
     map.fitBounds(aoi.pad(0.08));
+    setTimeout(()=>showProgress(false),900);
   }catch(err){
     $('sheet').classList.add('open');
     $('result').textContent='שגיאה: '+(err.message||err);
     setBanner('<b>שגיאה.</b> נסו שוב.');
+    showProgress(false);
   }finally{updateRun()}
 }
 $('runBtn').onclick=runAnalysis;
-$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;elevCache={};$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('result').textContent='נוקה.';setMode('path');updateRun()}
+$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;elevCache={};showProgress(false);$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('result').textContent='נוקה.';setMode('path');updateRun()}
 $('saveBtn').onclick=()=>{localStorage.setItem('fp-mission',JSON.stringify({path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null}));$('result').textContent='נשמר.'}
 $('loadBtn').onclick=()=>{const raw=localStorage.getItem('fp-mission');if(!raw){$('result').textContent='אין שמירה.';return}const data=JSON.parse(raw);$('clearBtn').onclick();(data.path||[]).forEach(p=>{const m=L.marker([p.lat,p.lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p)});redrawPath();if(data.aoi)setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]));$('result').textContent='נטען.';}
 updateRun();
