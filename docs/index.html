@@ -4,79 +4,96 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1220">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>Flight Planner — SNR / AOI</title>
+<title>Flight Planner</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-:root{--bg:#0b1220;--panel:#121a2b;--panel2:#182234;--line:#2a364c;--txt:#e8eef7;--muted:#93a0b5;--accent:#3b82f6;--good:#34d399;--warn:#fbbf24;--safe:env(safe-area-inset-bottom,0px)}
+:root{--bg:#0b1220;--panel:#121a2b;--panel2:#182234;--line:#2a364c;--txt:#e8eef7;--muted:#93a0b5;--accent:#2563eb;--good:#34d399;--warn:#fbbf24;--safe:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
-button,input,select{font:inherit}#map{position:fixed;inset:0;z-index:0}
-.topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(180deg,rgba(11,18,32,.94),rgba(11,18,32,.72) 70%,transparent);pointer-events:none}
-.topbar>*{pointer-events:auto}.brand{font-weight:700;font-size:14px;white-space:nowrap}
-.kpis{display:flex;gap:6px;overflow:auto;flex:1;scrollbar-width:none}.kpi{background:rgba(18,26,43,.92);border:1px solid var(--line);border-radius:10px;padding:5px 8px;min-width:72px}
-.kpi b{display:block;font-size:12px;color:#c7e0ff}.kpi span{display:block;font-size:10px;color:var(--muted)}
-.modes{position:fixed;top:58px;right:10px;z-index:21;display:flex;flex-direction:column;gap:6px}
-.modes button{border:0;border-radius:12px;padding:10px 12px;background:rgba(18,26,43,.94);color:var(--txt);border:1px solid var(--line);cursor:pointer;min-height:42px}
-.modes button.active{background:var(--accent);border-color:var(--accent);color:#fff}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:72vh;padding:8px 14px calc(14px + var(--safe));transform:translateY(calc(100% - 72px));transition:transform .22s ease}
-.sheet.open{transform:translateY(0)}.handle{width:42px;height:5px;border-radius:99px;background:#3a4860;margin:4px auto 8px}
-.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.sheet-head h2{margin:0;font-size:15px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
-.field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.actions button{border:0;border-radius:12px;padding:11px;cursor:pointer;font-weight:650}
-.primary{background:var(--accent);color:#fff}.secondary{background:#243044;color:var(--txt)}.danger{background:#3a1d24;color:#fecaca}
-.result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.55;max-height:28vh;overflow:auto}
-.legend{position:fixed;left:10px;bottom:86px;z-index:21;width:168px;background:rgba(18,26,43,.94);border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px}
+button,input,select{font:inherit}#map{position:fixed;inset:0}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:20;padding:8px 10px;background:linear-gradient(#0b1220,#0b122000)}
+.kpis{display:flex;gap:6px;overflow:auto}
+.kpi{background:#121a2be6;border:1px solid var(--line);border-radius:10px;padding:5px 8px;min-width:68px}
+.kpi b{display:block;font-size:12px}.kpi span{font-size:10px;color:var(--muted)}
+.banner{position:fixed;top:52px;left:10px;right:10px;z-index:21;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:13px}
+.banner b{color:#93c5fd}
+.modes{position:fixed;top:108px;right:10px;z-index:21;display:flex;flex-direction:column;gap:6px}
+.modes button{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:#121a2bf2;color:var(--txt);text-align:right;min-width:132px}
+.modes button small{display:block;color:var(--muted);font-size:10px}
+.modes button.active{background:var(--accent);border-color:var(--accent)}
+.modes button.active small{color:#dbeafe}
+.run{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe));z-index:40;border:0;border-radius:14px;padding:14px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;box-shadow:0 8px 24px #0008}
+.run:disabled{background:#334155;color:#94a3b8}
+.legend{position:fixed;left:10px;bottom:calc(132px + var(--safe));z-index:21;width:150px;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px}
 .bar{height:10px;border-radius:6px;margin:6px 0 4px;background:linear-gradient(to left,#d52b1e,#f7941e,#ffdd33,#2ecc40)}
-.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
-@media (min-width:900px){.sheet{left:auto;width:360px;top:0;bottom:0;right:0;max-height:none;border-radius:0;transform:none;padding:16px}.handle,.peek{display:none}.modes{right:376px;top:64px}.legend{left:auto;right:376px;bottom:16px}.topbar{right:360px}}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;max-height:70vh;padding:8px 14px calc(12px + var(--safe));transform:translateY(calc(100% - 64px));transition:transform .2s}
+.sheet.open{transform:none}
+.handle{width:40px;height:5px;border-radius:99px;background:#3a4860;margin:3px auto 8px}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.row button{border:0;border-radius:12px;padding:10px;background:#243044;color:#fff}
+.result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.5;max-height:24vh;overflow:auto}
+.hint{color:var(--muted);font-size:12px}
+@media (min-width:900px){
+  .sheet{width:360px;left:auto;top:0;bottom:0;right:0;max-height:none;border-radius:0;transform:none;padding:16px}
+  .handle,.peek{display:none}.modes{right:376px;top:64px}.banner{right:376px}.legend{right:376px;left:auto;bottom:16px}
+  .run{left:auto;right:376px;width:340px;bottom:16px}
+}
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div class="topbar"><div class="brand">Flight Planner</div><div class="kpis">
-<div class="kpi"><span>Waypoints</span><b id="kPts">0</b></div>
-<div class="kpi"><span>Path</span><b id="kLen">-</b></div>
-<div class="kpi"><span>AOI mean</span><b id="kAvg">-</b></div>
-<div class="kpi"><span>AOI max</span><b id="kMax">-</b></div>
-<div class="kpi"><span>Coverage</span><b id="kCov">-</b></div>
+<div class="topbar"><div class="kpis">
+<div class="kpi"><span>נקודות מסלול</span><b id="kPts">0</b></div>
+<div class="kpi"><span>אורך</span><b id="kLen">-</b></div>
+<div class="kpi"><span>ממוצע AOI</span><b id="kAvg">-</b></div>
+<div class="kpi"><span>מקס AOI</span><b id="kMax">-</b></div>
+<div class="kpi"><span>כיסוי</span><b id="kCov">-</b></div>
 </div></div>
-<div class="modes"><button id="mPath" class="active">Path</button><button id="mAoi">AOI</button><button id="mInspect">Inspect</button></div>
+<div class="banner" id="banner"><b>שלב 1:</b> ציירו מסלול טיסה על המפה. אחר כך AOI, ואז Run Analysis.</div>
+<div class="modes">
+<button id="mPath" class="active">1. מסלול טיסה<small>לחיצה מוסיפה נקודת מטוס</small></button>
+<button id="mAoi">2. ציור AOI<small>שתי לחיצות לפינות מלבן</small></button>
+<button id="mInspect">3. בדיקת נקודה<small>רק אחרי Run Analysis</small></button>
+</div>
 <div class="legend"><b>SNR (dB)</b><div class="bar"></div><div style="display:flex;justify-content:space-between"><span id="legMin">-25</span><span id="legMid">2.5</span><span id="legMax">30</span></div></div>
-<aside class="sheet open" id="sheet">
+<button class="run" id="runBtn">Run Analysis</button>
+<aside class="sheet" id="sheet">
 <div class="handle"></div>
-<div class="sheet-head"><h2>RF / AOI</h2><button class="secondary peek" id="toggleSheet" style="padding:7px 10px;min-height:0">Toggle</button></div>
+<div class="sheet-head"><h2 style="margin:0;font-size:15px">פרמטרים ותוצאות</h2><button id="toggleSheet" class="peek" style="border:0;background:#243044;color:#fff;border-radius:10px;padding:7px 10px">פתח / סגור</button></div>
 <div class="grid">
 <div class="field"><label>Tx Power (dBm)</label><input id="pt" type="number" value="37" step="0.5"></div>
-<div class="field"><label>Altitude (KFT AMSL)</label><input id="alt" type="number" value="35" step="0.5"></div>
+<div class="field"><label>Altitude (KFT)</label><input id="alt" type="number" value="35" step="0.5"></div>
 <div class="field"><label>Min freq (MHz)</label><input id="fmin" type="number" value="100"></div>
 <div class="field"><label>Max freq (MHz)</label><input id="fmax" type="number" value="100"></div>
 <div class="field"><label>Freq steps</label><input id="fsteps" type="number" value="1" min="1" max="21"></div>
 <div class="field"><label>Path samples</label><input id="psamp" type="number" value="24" min="2" max="120"></div>
-<div class="field"><label>Polarization loss (dB)</label><input id="lpol" type="number" value="3" step="0.5"></div>
-<div class="field"><label>System loss (dB)</label><input id="lsys" type="number" value="0" step="0.5"></div>
-<div class="field"><label>Noise figure (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
-<div class="field"><label>Bandwidth (kHz)</label><input id="bw" type="number" value="25"></div>
-<div class="field"><label>Grid size</label><input id="gridn" type="number" value="32" min="12" max="60"></div>
-<div class="field"><label>Coverage threshold (dB)</label><input id="thr" type="number" value="0"></div>
+<div class="field"><label>Pol loss (dB)</label><input id="lpol" type="number" value="3" step="0.5"></div>
+<div class="field"><label>Sys loss (dB)</label><input id="lsys" type="number" value="0" step="0.5"></div>
+<div class="field"><label>NF (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
+<div class="field"><label>BW (kHz)</label><input id="bw" type="number" value="25"></div>
+<div class="field"><label>Grid</label><input id="gridn" type="number" value="28" min="12" max="60"></div>
+<div class="field"><label>Threshold (dB)</label><input id="thr" type="number" value="0"></div>
 <div class="field"><label>Color min</label><input id="cmin" type="number" value="-25"></div>
 <div class="field"><label>Color max</label><input id="cmax" type="number" value="30"></div>
-<div class="field"><label>Map mode</label><select id="viewMode"><option value="mean">Mean SNR over all aircraft points</option><option value="max">Max SNR over all aircraft points</option><option value="single">Single aircraft point</option></select></div>
-<div class="field"><label>Aircraft sample index</label><input id="wpIndex" type="number" value="1" min="1"></div>
+<div class="field"><label>סוג חישוב</label><select id="viewMode"><option value="mean">ממוצע על כל נקודות המטוס</option><option value="max">מקס על כל נקודות המטוס</option><option value="single">נקודת מטוס אחת</option></select></div>
+<div class="field"><label>אינדקס נקודה</label><input id="wpIndex" type="number" value="1" min="1"></div>
 </div>
-<div class="actions"><button class="primary" id="runBtn">Calculate SNR / AOI</button><button class="secondary" id="clearBtn">Clear</button><button class="secondary" id="saveBtn">Save</button><button class="danger" id="loadBtn">Load</button></div>
-<p class="hint">Path: tap map to add draggable points. AOI: two taps for rectangle corners. Inspect: tap a ground point for full link budget vs every aircraft sample.</p>
-<div class="result" id="result">Draw a path and AOI, then calculate. Inspect mode shows SNR at a clicked point.</div>
+<div class="row"><button id="clearBtn">נקה</button><button id="saveBtn">שמור</button><button id="loadBtn">טען</button></div>
+<p class="hint">Run Analysis מחשב מפת SNR על כל ה-AOI מול כל דגימות המסלול. בדיקת נקודה מציגה תקציב קישור במקום שלחצתם.</p>
+<div class="result" id="result">עדיין לא רצה אנליזה. ציירו מסלול ו-AOI ואז לחצו Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const C=299792458,R=6371000;
 const GAIN=[[30,-35],[60,-24.5],[90,-12.5],[500,-1],[1000,3],[2000,3],[3000,2],[4500,2],[5000,2],[6000,4]];
 const $=id=>document.getElementById(id);
-const map=L.map('map').setView([31.8,35.0],7);
+const map=L.map('map',{zoomControl:true}).setView([31.8,35.0],7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'OSM'}).addTo(map);
 const heatLayer=L.layerGroup().addTo(map),aoiLayer=L.layerGroup().addTo(map),pathLayer=L.layerGroup().addTo(map);
-let mode='path',path=[],markers=[],line=null,aoi=null,aoiCorners=[];
+let mode='path',path=[],markers=[],aoi=null,aoiCorners=[],hasAnalysis=false,inspectMarker=null;
 function interpGain(f){if(f<=GAIN[0][0])return GAIN[0][1];if(f>=GAIN[GAIN.length-1][0])return GAIN[GAIN.length-1][1];for(let i=1;i<GAIN.length;i++){const [f0,g0]=GAIN[i-1],[f1,g1]=GAIN[i];if(f<=f1)return g0+(g1-g0)*(f-f0)/(f1-f0)}return GAIN[GAIN.length-1][1]}
 function hav(a,b){const p=Math.PI/180,dLat=(b.lat-a.lat)*p,dLon=(b.lng-a.lng)*p,x=Math.sin(dLat/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)))}
 function params(){const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(12,+$('gridn').value|0),thr:+$('thr').value,cmin:+$('cmin').value,cmax:+$('cmax').value,view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0)}}
@@ -84,16 +101,45 @@ function linkBudget(ac,ground,p,freq){const horiz=hav(ac,ground),d=Math.sqrt(hor
 function bestAndMean(acList,ground,p){let max=-Infinity,sum=0,n=0,best=null;for(const ac of acList){for(const f of p.freqs){const r=linkBudget(ac,ground,p,f);sum+=r.snr;n++;if(r.snr>max){max=r.snr;best=r}}}return{max,mean:n?sum/n:NaN,best,n}}
 function resample(pts,n){if(!pts.length)return[];if(pts.length===1||n<=1)return[pts[0]];const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));const total=cum[cum.length-1];if(total<=0)return[pts[0]];const out=[];for(let k=0;k<n;k++){const target=total*k/(n-1);let seg=1;while(seg<cum.length-1&&cum[seg]<target)seg++;const a=pts[seg-1],b=pts[seg],len=cum[seg]-cum[seg-1],t=len?(target-cum[seg-1])/len:0;out.push({lat:a.lat+t*(b.lat-a.lat),lng:a.lng+t*(b.lng-a.lng)})}return out}
 function color(v,vmin,vmax){const x=Math.max(0,Math.min(1,(v-vmin)/Math.max(vmax-vmin,1e-9)));const s=[[0,[213,43,30]],[.4,[247,148,30]],[.7,[255,221,51]],[1,[46,204,64]]];for(let i=0;i<s.length-1;i++){if(x<=s[i+1][0]){const t=(x-s[i][0])/(s[i+1][0]-s[i][0]||1);const c=s[i][1].map((a,k)=>Math.round(a+t*(s[i+1][1][k]-a)));return 'rgb('+c[0]+','+c[1]+','+c[2]+')'}}return 'rgb(46,204,64)'}
-function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)line=L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);else line=null;const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-'}
-function setAoi(bounds){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer)}
-function setMode(next){mode=next;['mPath','mAoi','mInspect'].forEach(id=>$(id).classList.remove('active'));$(next==='path'?'mPath':next==='aoi'?'mAoi':'mInspect').classList.add('active');aoiCorners=[]}
-$('mPath').onclick=()=>setMode('path');$('mAoi').onclick=()=>setMode('aoi');$('mInspect').onclick=()=>setMode('inspect');$('toggleSheet').onclick=()=>$('sheet').classList.toggle('open');
-map.on('click',e=>{if(mode==='path'){const p={lat:e.latlng.lat,lng:e.latlng.lng};const m=L.marker(e.latlng,{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p);redrawPath()}else if(mode==='aoi'){aoiCorners.push(e.latlng);if(aoiCorners.length===1)$('result').textContent='Tap the opposite AOI corner.';else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[];$('result').textContent='AOI set. Calculate when ready.'}}else inspect(e.latlng)});
-function inspect(ll){if(!path.length){$('result').textContent='Draw an aircraft path first.';return}const p=params(),samples=resample(path,p.samples),stats=bestAndMean(samples,{lat:ll.lat,lng:ll.lng},p),b=stats.best;$('result').innerHTML='<b>SNR at '+ll.lat.toFixed(5)+', '+ll.lng.toFixed(5)+'</b><br>Mean over all aircraft samples and frequencies: <b>'+stats.mean.toFixed(2)+' dB</b><br>Max SNR: <b>'+stats.max.toFixed(2)+' dB</b> @ '+b.freq.toFixed(1)+' MHz<br>Ground range: '+(b.horiz/1000).toFixed(2)+' km · Slant range: '+(b.d/1000).toFixed(2)+' km<br>FSPL '+b.fspl.toFixed(1)+' dB · Gr '+b.gr.toFixed(1)+' dBi<br>Pr '+b.pr.toFixed(1)+' dBm · Noise '+b.noise.toFixed(1)+' dBm<br>Samples used: '+stats.n}
-$('runBtn').onclick=()=>{if(!path.length){$('result').textContent='Need at least one aircraft point.';return}if(!aoi){$('result').textContent='Need an AOI rectangle.';return}const p=params();if(p.cmax<=p.cmin){$('result').textContent='Invalid color scale.';return}const samples=resample(path,p.samples),single=[samples[Math.min(samples.length-1,p.wpIndex-1)]],ac=p.view==='single'?single:samples,sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;heatLayer.clearLayers();let sum=0,count=0,mx=-Infinity,mn=Infinity,cover=0;for(let iy=0;iy<n;iy++){for(let ix=0;ix<n;ix++){const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n,lng0=sw.lng+(ne.lng-sw.lng)*ix/n,lng1=sw.lng+(ne.lng-sw.lng)*(ix+1)/n,c={lat:(lat0+lat1)/2,lng:(lng0+lng1)/2},s=bestAndMean(ac,c,p),v=p.view==='max'?s.max:s.mean;if(!isFinite(v))continue;sum+=v;count++;mx=Math.max(mx,v);mn=Math.min(mn,v);if(v>=p.thr)cover++;L.rectangle([[lat0,lng0],[lat1,lng1]],{stroke:false,fill:true,fillOpacity:.72,fillColor:color(v,p.cmin,p.cmax)}).bindTooltip(v.toFixed(1)+' dB',{sticky:true}).addTo(heatLayer)}}const avg=count?sum/count:NaN,cov=count?100*cover/count:0;$('kAvg').textContent=isFinite(avg)?avg.toFixed(1)+' dB':'-';$('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';$('kCov').textContent=cov.toFixed(0)+'%';$('legMin').textContent=p.cmin;$('legMax').textContent=p.cmax;$('legMid').textContent=((p.cmin+p.cmax)/2).toFixed(1);const label=p.view==='mean'?'Mean SNR of all aircraft points in every AOI cell':p.view==='max'?'Max SNR of all aircraft points in every AOI cell':'SNR from a single aircraft sample';$('result').innerHTML='<b>Done</b><br>'+label+'<br>Cells '+count+' · aircraft samples '+ac.length+' · freqs '+p.freqs.map(f=>f.toFixed(0)).join(', ')+' MHz<br>AOI-wide mean <b>'+avg.toFixed(2)+' dB</b><br>AOI max/min '+mx.toFixed(2)+' / '+mn.toFixed(2)+' dB<br>Coverage above '+p.thr+' dB: '+cov.toFixed(1)+'%<br>Alt '+$('alt').value+' KFT · Pt '+p.pt+' dBm';map.fitBounds(aoi.pad(0.08))};
-$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];line=null;pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kCov').textContent='-';$('result').textContent='Cleared.'};
-$('saveBtn').onclick=()=>{localStorage.setItem('fp-mission',JSON.stringify({path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null,form:{pt:$('pt').value,alt:$('alt').value,fmin:$('fmin').value,fmax:$('fmax').value,fsteps:$('fsteps').value,psamp:$('psamp').value,lpol:$('lpol').value,lsys:$('lsys').value,nf:$('nf').value,bw:$('bw').value}}));$('result').textContent='Saved on this device.'};
-$('loadBtn').onclick=()=>{const raw=localStorage.getItem('fp-mission');if(!raw){$('result').textContent='Nothing saved.';return}const data=JSON.parse(raw);$('clearBtn').onclick();(data.path||[]).forEach(p=>{const m=L.marker([p.lat,p.lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p)});redrawPath();if(data.aoi)setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]));Object.entries(data.form||{}).forEach(([k,v])=>{if($(k))$(k).value=v});$('result').textContent='Loaded.'};
+function setBanner(html){$('banner').innerHTML=html}
+function ready(){return path.length>=1 && !!aoi}
+function updateRun(){$('runBtn').disabled=!ready();$('runBtn').textContent=ready()?'Run Analysis':'Run Analysis — חסר מסלול או AOI'}
+function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-';updateRun();if(!aoi)setBanner('<b>שלב 2:</b> עברו לציור AOI. שתי לחיצות לפינות המלבן.');else if(!hasAnalysis)setBanner('<b>שלב 3:</b> לחצו Run Analysis כדי לראות מפת SNR ותוצאות.');}
+function setAoi(bounds){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer);updateRun();if(ready())setBanner('<b>מוכן:</b> יש מסלול ו-AOI. לחצו Run Analysis.');}
+function setMode(next){mode=next;['mPath','mAoi','mInspect'].forEach(id=>$(id).classList.remove('active'));$(next==='path'?'mPath':next==='aoi'?'mAoi':'mInspect').classList.add('active');aoiCorners=[];
+if(next==='path')setBanner('<b>מצב מסלול:</b> לחצו על המפה להוספת נקודות מטוס. אפשר לגרור.');
+if(next==='aoi')setBanner('<b>מצב AOI:</b> לחצו פינה אחת, אחר כך פינה נגדית.');
+if(next==='inspect')setBanner(hasAnalysis?'<b>בדיקת נקודה:</b> לחצו על הקרקע בתוך ה-AOI. יוצג SNR מול כל נקודות המטוס.':'<b>בדיקת נקודה:</b> קודם Run Analysis, אחר כך לחצו על נקודה.');}
+$('mPath').onclick=()=>setMode('path');$('mAoi').onclick=()=>setMode('aoi');$('mInspect').onclick=()=>setMode('inspect');
+$('toggleSheet').onclick=()=>$('sheet').classList.toggle('open');
+map.on('click',e=>{if(mode==='path'){const p={lat:e.latlng.lat,lng:e.latlng.lng};const m=L.marker(e.latlng,{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p);redrawPath()}
+else if(mode==='aoi'){aoiCorners.push(e.latlng);if(aoiCorners.length===1)setBanner('<b>AOI:</b> לחצו פינה נגדית.');else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[];}}
+else inspect(e.latlng)});
+function inspect(ll){if(!path.length){$('result').textContent='אין מסלול. ציירו מסלול קודם.';$('sheet').classList.add('open');return}
+const p=params(),samples=resample(path,p.samples),stats=bestAndMean(samples,{lat:ll.lat,lng:ll.lng},p),b=stats.best;
+if(inspectMarker)map.removeLayer(inspectMarker);inspectMarker=L.circleMarker(ll,{radius:8,color:'#fbbf24',fillColor:'#fbbf24',fillOpacity:.9}).addTo(map);
+$('sheet').classList.add('open');
+$('result').innerHTML='<b>בדיקת נקודה</b><br>'+ll.lat.toFixed(5)+', '+ll.lng.toFixed(5)+'<br>ממוצע מול כל נקודות המטוס: <b>'+stats.mean.toFixed(2)+' dB</b><br>מקס SNR: <b>'+stats.max.toFixed(2)+' dB</b> @ '+b.freq.toFixed(1)+' MHz<br>מרחק קרקע '+(b.horiz/1000).toFixed(2)+' km · טווח 3D '+(b.d/1000).toFixed(2)+' km<br>FSPL '+b.fspl.toFixed(1)+' dB · Gr '+b.gr.toFixed(1)+' dBi<br>Pr '+b.pr.toFixed(1)+' dBm · Noise '+b.noise.toFixed(1)+' dBm';}
+function runAnalysis(){if(!path.length){$('sheet').classList.add('open');$('result').textContent='אין מסלול טיסה.';setBanner('<b>חסר מסלול.</b> לחצו «מסלול טיסה» והוסיפו נקודות.');return}
+if(!aoi){$('sheet').classList.add('open');$('result').textContent='אין AOI.';setBanner('<b>חסר AOI.</b> לחצו «ציור AOI» ושתי פינות.');return}
+const p=params();if(p.cmax<=p.cmin){$('result').textContent='סקאלת צבע לא תקינה.';return}
+$('runBtn').textContent='Running...';
+const samples=resample(path,p.samples),single=[samples[Math.min(samples.length-1,p.wpIndex-1)]],ac=p.view==='single'?single:samples,sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;
+heatLayer.clearLayers();let sum=0,count=0,mx=-Infinity,mn=Infinity,cover=0;
+for(let iy=0;iy<n;iy++){for(let ix=0;ix<n;ix++){const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n,lng0=sw.lng+(ne.lng-sw.lng)*ix/n,lng1=sw.lng+(ne.lng-sw.lng)*(ix+1)/n,c={lat:(lat0+lat1)/2,lng:(lng0+lng1)/2},s=bestAndMean(ac,c,p),v=p.view==='max'?s.max:s.mean;if(!isFinite(v))continue;sum+=v;count++;mx=Math.max(mx,v);mn=Math.min(mn,v);if(v>=p.thr)cover++;L.rectangle([[lat0,lng0],[lat1,lng1]],{stroke:false,fill:true,fillOpacity:.72,fillColor:color(v,p.cmin,p.cmax)}).bindTooltip(v.toFixed(1)+' dB',{sticky:true}).addTo(heatLayer)}}
+const avg=count?sum/count:NaN,cov=count?100*cover/count:0;
+$('kAvg').textContent=isFinite(avg)?avg.toFixed(1)+' dB':'-';$('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';$('kCov').textContent=cov.toFixed(0)+'%';
+$('legMin').textContent=p.cmin;$('legMax').textContent=p.cmax;$('legMid').textContent=((p.cmin+p.cmax)/2).toFixed(1);
+hasAnalysis=true;updateRun();$('sheet').classList.add('open');
+const kind=p.view==='mean'?'ממוצע SNR של כל נקודות המטוס בכל תא':p.view==='max'?'מקס SNR מכל נקודות המטוס':'SNR מנקודת מטוס אחת';
+$('result').innerHTML='<b>Analysis complete</b><br>'+kind+'<br>תאים '+count+' · דגימות מטוס '+ac.length+' · תדרים '+p.freqs.map(f=>f.toFixed(0)).join(', ')+' MHz<br>ממוצע על כל ה-AOI: <b>'+avg.toFixed(2)+' dB</b><br>מקס/מינ '+mx.toFixed(2)+' / '+mn.toFixed(2)+' dB<br>כיסוי מעל '+p.thr+' dB: '+cov.toFixed(1)+'%';
+setBanner('<b>האנליזה רצה.</b> אפשר לעבור לבדיקת נקודה וללחוץ על הקרקע.');
+map.fitBounds(aoi.pad(0.08));}
+$('runBtn').onclick=runAnalysis;
+$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();if(inspectMarker)map.removeLayer(inspectMarker);aoi=null;aoiCorners=[];hasAnalysis=false;$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kCov').textContent='-';$('result').textContent='נוקה. ציירו מסלול ו-AOI ואז Run Analysis.';setMode('path');updateRun()}
+$('saveBtn').onclick=()=>{localStorage.setItem('fp-mission',JSON.stringify({path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null,form:{pt:$('pt').value,alt:$('alt').value,fmin:$('fmin').value,fmax:$('fmax').value}}));$('result').textContent='נשמר במכשיר.'}
+$('loadBtn').onclick=()=>{const raw=localStorage.getItem('fp-mission');if(!raw){$('result').textContent='אין שמירה.';return}const data=JSON.parse(raw);$('clearBtn').onclick();(data.path||[]).forEach(p=>{const m=L.marker([p.lat,p.lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p)});redrawPath();if(data.aoi)setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]));$('result').textContent='נטען. לחצו Run Analysis.';}
+updateRun();
 </script>
 </body>
 </html>
