@@ -182,9 +182,63 @@ with st.sidebar:
     st.subheader("Heat Map Scale"); scale_min=st.number_input("Color Bar Min (dB)",-200.0,200.0,-25.0,1.0); scale_max=st.number_input("Color Bar Max (dB)",scale_min+1.0,250.0,30.0,1.0)
     st.caption("Grid = AOI resolution (N×N cells). LOS samples = samples along aircraft→ground ray for DTM blocking check.")
     if st.session_state.analysis and st.session_state.analysis.get("freqs"):
-        labels = ["All freqs (aggregate / best)"] + [f"{f:.3f} MHz" for f in st.session_state.analysis["freqs"}}]
+        labels = ["All freqs (aggregate / best)"] + [f"{f:.3f} MHz" for f in st.session_state.analysis["freqs"]]
         choice = st.selectbox("Frequency view", options=list(range(len(labels))), format_func=lambda i: labels[i], key="freq_view_box")
         st.session_state.selected_freq_idx = "all" if choice == 0 else choice - 1
     ready=bool(st.session_state.path_confirmed and st.session_state.aoi_confirmed and st.session_state.path and st.session_state.aoi)
     if st.button("🚀  Run DTM + SNR Analysis",type="primary",use_container_width=True,disabled=not ready):st.session_state.run_requested=True
     st.caption("מסלול: "+(✅ מאושר" if st.session_state.path_confirmed else "❌ לא מאושר"));st.caption("AOI: "+(✅ מאושר" if st.session_state.aoi_confirmed else "❌ לא מאושר"))
+
+center=[31.8,35.0]
+if st.session_state.path:center=st.session_state.path[len(st.session_state.path)//2]
+elif st.session_state.aoi:center=[sum(p[0] for p in st.session_state.aoi)/len(st.session_state.aoi),sum(p[1] for p in st.session_state.aoi)/len(st.session_state.aoi)]
+if st.session_state.analysis:
+    bounds=st.session_state.analysis["bounds"];center=[(bounds[0][0]+bounds[1][0])/2,(bounds[0][1]+bounds[1][1])/2];m=base_map(center,9);add_heat_cells(m,st.session_state.analysis["grid"],st.session_state.analysis["details"],bounds,scale_min,scale_max,st.session_state.get("selected_freq_idx","all"));add_geometry(m);add_legend(m,scale_min,scale_max)
+else:
+    m=base_map(center,8 if (st.session_state.path or st.session_state.aoi) else 7);add_geometry(m)
+    if st.session_state.mode in ("path","aoi"):
+        if (st.session_state.mode=="path" and not st.session_state.path_confirmed and not st.session_state.path) or (st.session_state.mode=="aoi" and not st.session_state.aoi_confirmed and not st.session_state.aoi):add_auto_draw(m,st.session_state.mode)
+map_state=st_folium(m,height=760,use_container_width=True,returned_objects=["all_drawings"],key="mission_map")
+
+if not st.session_state.analysis:
+    drawings=map_state.get("all_drawings") or []
+    if drawings:
+        feature=drawings[-1];geo=feature.get("geometry",{});coords=geo.get("coordinates",[]);changed=False
+        if st.session_state.mode=="path" and geo.get("type")=="LineString" and len(coords)>=2:st.session_state.path=[[p[1],p[0]] for p in coords];st.session_state.path_confirmed=False;changed=True
+        elif st.session_state.mode=="aoi" and geo.get("type")=="Polygon" and coords:st.session_state.aoi=[[p[1],p[0]] for p in coords[0]];st.session_state.aoi_confirmed=False;changed=True
+        if changed:st.rerun()
+
+if st.session_state.run_requested and ready:
+    st.session_state.run_requested=False
+    if min_freq>max_freq:st.error("Max Frequency must be >= Min Frequency.");st.stop()
+    if scale_max<=scale_min:st.error("Color Bar Max must be greater than Min.");st.stop()
+    freqs=[min_freq] if int(steps)==1 else np.linspace(min_freq,max_freq,int(steps)).tolist();sampled_path=resample_path(st.session_state.path,int(path_samples));aircraft_alt_m=float(altitude_kft)*304.8;noise_floor=-174.0+10*math.log10(NOISE_BW_MHZ*1e6)+float(noise_figure)
+    progress=st.progress(0.0,text="Loading DTM...");started=time.time()
+    try:dtm=get_srtm()
+    except Exception as e:st.error(f"DTM/SRTM could not be loaded: {e}");st.stop()
+    aoi=st.session_state.aoi;lats=[p[0] for p in aoi];lons=[p[1] for p in aoi];minlat,maxlat=min(lats),max(lats);minlon,maxlon=min(lons),max(lons);n=int(grid_size);latvals=np.linspace(maxlat,minlat,n);lonvals=np.linspace(minlon,maxlon,n)
+    cells=[(iy,ix,float(lat),float(lon)) for iy,lat in enumerate(latvals) for ix,lon in enumerate(lonvals) if point_in_polygon(float(lat),float(lon),aoi)]
+    cache={};elev={}
+    for i,(_,_,lat,lon) in enumerate(cells,1):
+        elev[(round(lat,5),round(lon,5))]=terrain_elevation(dtm,lat,lon,cache)
+        if i==1 or i==len(cells) or i%max(1,len(cells)//10)==0:progress.progress(.12*i/max(1,len(cells)),text=f"DTM {i}/{len(cells)}")
+    grid=np.full((n,n),np.nan,dtype=np.float32);details=[[None for _ in range(n)] for _ in range(n)];blocked=0
+    for i,(iy,ix,glat,glon) in enumerate(cells,1):
+        gelev=elev[(round(glat,5),round(glon,5))];best=-math.inf;best_detail=None
+        per_freq_best={i:-math.inf for i in range(len(freqs))};per_freq_detail={i:None for i in range(len(freqs))}
+        for alat,alon in sampled_path:
+            horiz=haversine_m(alat,alon,glat,glon);d3=math.sqrt(horiz*horiz+(aircraft_alt_m-gelev)**2);visible=los_clear(dtm,alat,alon,aircraft_alt_m,glat,glon,gelev,cache,int(los_samples)) if los_enabled else True
+            if not visible:continue
+            for fi,f in enumerate(freqs):
+                gain=interp_gain(float(f));fspl=fspl_db(d3,float(f));snr=tx_power+gain-fspl-pol_loss-sys_loss-noise_floor
+                if snr>per_freq_best[fi]:
+                    per_freq_best[fi]=snr
+                    per_freq_detail[fi]={"snr":snr,"freq":float(f),"distance_km":d3/1000.0,"tx_power":tx_power,"gain":gain,"fspl":fspl,"pol_loss":pol_loss,"sys_loss":sys_loss,"noise_floor":noise_floor,"ground_elev":gelev,"blocked":False}
+                if snr>best:best=snr;best_detail={"snr":snr,"freq":float(f),"distance_km":d3/1000.0,"tx_power":tx_power,"gain":gain,"fspl":fspl,"pol_loss":pol_loss,"sys_loss":sys_loss,"noise_floor":noise_floor,"ground_elev":gelev,"blocked":False}
+        if best_detail is None:blocked+=1;details[iy][ix]={"blocked":True,"ground_elev":gelev,"per_freq":{}}
+        else:
+            grid[iy,ix]=best
+            best_detail["per_freq"]={i:per_freq_detail[i] for i in per_freq_detail if per_freq_detail[i] is not None}
+            details[iy][ix]=best_detail
+        if i==1 or i==len(cells) or i%max(1,len(cells)//20)==0:progress.progress(.12+.88*i/max(1,len(cells)),text=f"DTM + SNR {i}/{len(cells)}")
+    elapsed=time.time()-started;progress.progress(1.0,text="Analysis complete");st.session_state.analysis={"grid":grid,"details":details,"bounds":[[minlat,minlon],[maxlat,maxlon]],"path":sampled_path,"blocked":blocked,"elapsed":elapsed,"freqs":[float(f) for f in freqs]};st.session_state.selected_freq_idx="all";st.rerun()
