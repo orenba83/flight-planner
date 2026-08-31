@@ -1,13 +1,136 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=https://cdn.jsdelivr.net/gh/orenba83/flight-planner@c070562346de6943c34b3c3789c9addd250e7313/docs/index.html">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
 <title>Flight Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#0b1220;--panel:#121a2b;--panel2:#182234;--line:#2a364c;--txt:#e8eef7;--muted:#93a0b5;--accent:#2563eb;--safe:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+button,input,select{font:inherit}#map{position:fixed;inset:0}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:20;padding:8px 10px;background:linear-gradient(#0b1220,#0b122000)}
+.kpis{display:flex;gap:6px;overflow:auto}
+.kpi{background:#121a2be6;border:1px solid var(--line);border-radius:10px;padding:5px 8px;min-width:64px}
+.kpi b{display:block;font-size:12px}.kpi span{font-size:10px;color:var(--muted)}
+.banner{position:fixed;top:52px;left:10px;right:10px;z-index:21;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:13px}
+.banner b{color:#93c5fd}
+.modes{position:fixed;top:108px;right:10px;z-index:21;display:flex;flex-direction:column;gap:6px}
+.modes button{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:#121a2bf2;color:var(--txt);text-align:left;min-width:140px}
+.modes button small{display:block;color:var(--muted);font-size:10px}
+.modes button.active{background:var(--accent);border-color:var(--accent)}
+.modes button.active small{color:#dbeafe}
+.modes button.layerBtn{border-style:dashed}
+.modes button.layerOn{background:#0f766e;border-color:#14b8a6}
+.run{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe));z-index:40;border:0;border-radius:14px;padding:14px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;box-shadow:0 8px 24px #0008}
+.run:disabled{background:#334155;color:#94a3b8}
+.legend{position:fixed;left:10px;bottom:calc(150px + var(--safe));z-index:21;width:180px;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px}
+.bar{height:10px;border-radius:6px;margin:6px 0 4px;background:linear-gradient(to right,#d52b1e,#f7941e,#ffdd33,#2ecc40)}
+.scale-row{display:flex;gap:4px;align-items:center;margin-top:6px}
+.scale-row input{width:56px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:4px 6px;font-size:11px}
+.scale-row button{border:0;border-radius:6px;padding:4px 8px;background:#243044;color:#fff;font-size:11px;cursor:pointer}
+.scale-row button:hover{background:#334155}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;max-height:70vh;padding:8px 14px calc(12px + var(--safe));transform:translateY(calc(100% - 64px));transition:transform .2s}
+.sheet.open{transform:none}
+.handle{width:40px;height:5px;border-radius:99px;background:#3a4860;margin:3px auto 8px}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px}
+.check{grid-column:1/-1;display:flex;gap:8px;align-items:center;font-size:13px}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.row button{border:0;border-radius:12px;padding:10px;background:#243044;color:#fff}
+.result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.5;max-height:26vh;overflow:auto}
+.hint{color:var(--muted);font-size:12px}
+.progress-wrap{position:fixed;left:12px;right:12px;bottom:calc(168px + var(--safe));z-index:45;display:none;background:#121a2bf5;border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 8px 28px #000a}
+.progress-wrap.show{display:block}
+.progress-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px;font-size:13px}
+.progress-top b{color:#93c5fd}
+.progress-track{height:12px;border-radius:99px;background:#1e293b;overflow:hidden}
+.progress-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .15s linear}
+.progress-eta{margin-top:6px;font-size:12px;color:var(--muted)}
+@media (min-width:900px){
+  .sheet{width:360px;left:auto;top:0;bottom:0;right:0;max-height:none;border-radius:0;transform:none;padding:16px}
+  .handle,.peek{display:none}.modes{right:376px;top:64px}.banner{right:376px}.legend{right:376px;left:auto;bottom:90px}
+  .run{left:auto;right:376px;width:340px;bottom:16px}
+  .progress-wrap{left:auto;right:376px;width:340px;bottom:80px}
+}
+</style>
 </head>
-<body style="font-family:system-ui;background:#0b1220;color:#e8eef7;padding:24px">
-<p>Loading Flight Planner…</p>
-<p>If nothing happens, open <a style="color:#93c5fd" href="https://cdn.jsdelivr.net/gh/orenba83/flight-planner@c070562346de6943c34b3c3789c9addd250e7313/docs/index.html">the last working version</a>.</p>
-<p>To restore the repo file itself: reset <code>docs/index.html</code> to commit <code>c070562</code>.</p>
+<body>
+<div id="map"></div>
+<div class="topbar"><div class="kpis">
+<div class="kpi"><span>Path points</span><b id="kPts">0</b></div>
+<div class="kpi"><span>Length</span><b id="kLen">-</b></div>
+<div class="kpi"><span>Avg SNR</span><b id="kAvg">-</b></div>
+<div class="kpi"><span>Max SNR</span><b id="kMax">-</b></div>
+<div class="kpi"><span>Diffraction</span><b id="kDiff">-</b></div>
+<div class="kpi"><span>Ellipse a90</span><b id="kEll">-</b></div>
+<div class="kpi"><span>Aperture</span><b id="kPhi">-</b></div>
+</div></div>
+<div class="banner" id="banner"><b>Step 1:</b> Draw flight path. Then AOI, then Run Analysis.</div>
+<div class="modes">
+<button id="mPath" class="active">1. Flight path<small>Click to add aircraft point</small></button>
+<button id="mAoi">2. Draw AOI<small>Two clicks for rectangle corners</small></button>
+<button id="mSnr" class="layerBtn">SNR map<small>Analysis 1</small></button>
+<button id="mEll" class="layerBtn">Ellipse map<small>Analysis 2 · a90</small></button>
+</div>
+<div class="legend">
+  <b id="legTitle">SNR (dB) — auto scale</b>
+  <div class="bar"></div>
+  <div style="display:flex;justify-content:space-between"><span id="legMin">-</span><span id="legMid">-</span><span id="legMax">-</span></div>
+  <div style="margin-top:4px;color:#9ca3af" id="legHint">Red = weak · Green = strong</div>
+  <div class="scale-row" id="scaleControls" style="display:none">
+    <input id="scaleMin" type="number" step="any" title="Min">
+    <span style="color:var(--muted)">–</span>
+    <input id="scaleMax" type="number" step="any" title="Max">
+    <button id="scaleApply" type="button">Apply</button>
+  </div>
+</div>
+<button class="run" id="runBtn">Run Analysis</button>
+<div class="progress-wrap" id="progWrap">
+<div class="progress-top"><span id="progLabel">Running analysis…</span><b id="progPct">0%</b></div>
+<div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
+<div class="progress-eta" id="progEta">Estimating time…</div>
+</div>
+<aside class="sheet" id="sheet">
+<div class="handle"></div>
+<div class="sheet-head"><h2 style="margin:0;font-size:15px">Parameters & Results</h2>
+<button id="toggleSheet" class="peek" style="border:0;background:#243044;color:#fff;border-radius:10px;padding:7px 10px">Open / Close</button></div>
+<div class="grid">
+<div class="field"><label>Tx Power (dBm)</label><input id="pt" type="number" value="37" step="0.5"></div>
+<div class="field"><label>Altitude AMSL (KFT)</label><input id="alt" type="number" value="8" step="0.5"></div>
+<div class="field"><label>Min freq (MHz)</label><input id="fmin" type="number" value="100"></div>
+<div class="field"><label>Max freq (MHz)</label><input id="fmax" type="number" value="100"></div>
+<div class="field"><label>Freq steps</label><input id="fsteps" type="number" value="1" min="1" max="21"></div>
+<div class="field"><label>Path samples</label><input id="psamp" type="number" value="20" min="2" max="80"></div>
+<div class="field"><label>Pol loss (dB)</label><input id="lpol" type="number" value="3" step="0.5"></div>
+<div class="field"><label>Sys loss (dB)</label><input id="lsys" type="number" value="0" step="0.5"></div>
+<div class="field"><label>NF (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
+<div class="field"><label>BW (kHz)</label><input id="bw" type="number" value="25"></div>
+<div class="field"><label>Grid (N×N cells in AOI)</label><input id="gridn" type="number" value="24" min="10" max="40" title="AOI is split into N by N cells. Higher = finer heatmap, slower."></div>
+<div class="field"><label>LOS samples (ray samples)</label><input id="lossamp" type="number" value="16" min="6" max="40" title="Number of elevation samples along the aircraft-to-ground ray for DTM / diffraction."></div>
+<div class="field"><label>Frequency view</label>
+<select id="freqView">
+<option value="all">All frequencies (aggregate)</option>
+</select></div>
+<div class="field"><label>Calculation type</label>
+<select id="viewMode">
+<option value="mean">Mean over all aircraft points</option>
+<option value="max">Max over all aircraft points</option>
+<option value="single">Single aircraft point</option>
+</select></div>
+<div class="field"><label>Point index</label><input id="wpIndex" type="number" value="1" min="1"></div>
+<div class="field"><label>DF RMS (°)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
+<div class="field"><label>Ellipse %</label><input id="ellP" type="number" value="90" min="50" max="99"></div>
+<label class="check"><input id="useDtm" type="checkbox" checked> Diffraction loss from DTM (knife-edge)</label>
+</div>
+<div class="row"><button id="clearBtn">Clear</button><button id="saveBtn">Save</button><button id="loadBtn">Load</button></div>
+<p class="hint">After analysis, use <b>Frequency view</b> to inspect each analyzed frequency separately. Grid = AOI resolution (N×N cells). LOS samples = points sampled along the aircraft→ground ray for DTM/diffraction. Run Analysis computes SNR + DF ellipse 90%.</p>
+<div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
+</aside>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="flight-planner.js"></script>
 </body>
 </html>
