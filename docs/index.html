@@ -23,6 +23,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .modes button.active small{color:#dbeafe}
 .modes button.layerBtn{border-style:dashed}
 .modes button.layerOn{background:#0f766e;border-color:#14b8a6}
+.modes button.hidden{display:none}
 .run{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe));z-index:40;border:0;border-radius:14px;padding:14px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;box-shadow:0 8px 24px #0008}
 .run:disabled{background:#334155;color:#94a3b8}
 .legend{position:fixed;left:10px;bottom:calc(150px + var(--safe));z-index:21;width:180px;background:#121a2bf2;border:1px solid var(--line);border-radius:12px;padding:8px;font-size:11px}
@@ -30,8 +31,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .scale-row{display:flex;gap:4px;align-items:center;margin-top:6px}
 .scale-row input{width:56px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:4px 6px;font-size:11px}
 .scale-row button{border:0;border-radius:6px;padding:4px 8px;background:#243044;color:#fff;font-size:11px;cursor:pointer}
-.scale-row button:hover{background:#334155}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;max-height:70vh;padding:8px 14px calc(12px + var(--safe));transform:translateY(calc(100% - 64px));transition:transform .2s}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;max-height:70vh;padding:8px 14px calc(12px + var(--safe));transform:translateY(calc(100% - 64px));transition:transform .2s;overflow:auto}
 .sheet.open{transform:none}
 .handle{width:40px;height:5px;border-radius:99px;background:#3a4860;margin:3px auto 8px}
 .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
@@ -39,10 +39,15 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
 .field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px}
 .check{grid-column:1/-1;display:flex;gap:8px;align-items:center;font-size:13px}
-.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .row button{border:0;border-radius:12px;padding:10px;background:#243044;color:#fff}
 .result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.5;max-height:26vh;overflow:auto}
 .hint{color:var(--muted);font-size:12px}
+.section{grid-column:1/-1;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.section h3{margin:0 0 8px;font-size:13px}
+.gain-row{display:grid;grid-template-columns:1fr 1fr 32px;gap:6px;margin-bottom:6px}
+.gain-row input{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:6px}
+.gain-row button{border:0;border-radius:8px;background:#3f1d1d;color:#fca5a5}
 .progress-wrap{position:fixed;left:12px;right:12px;bottom:calc(168px + var(--safe));z-index:45;display:none;background:#121a2bf5;border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 8px 28px #000a}
 .progress-wrap.show{display:block}
 .progress-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px;font-size:13px}
@@ -50,6 +55,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .progress-track{height:12px;border-radius:99px;background:#1e293b;overflow:hidden}
 .progress-fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .15s linear}
 .progress-eta{margin-top:6px;font-size:12px;color:var(--muted)}
+.ruler-tip{background:#0f172a;color:#fde68a;border:1px solid #f59e0b;border-radius:8px;padding:2px 6px;font-weight:700}
 @media (min-width:900px){
   .sheet{width:360px;left:auto;top:0;bottom:0;right:0;max-height:none;border-radius:0;transform:none;padding:16px}
   .handle,.peek{display:none}.modes{right:376px;top:64px}.banner{right:376px}.legend{right:376px;left:auto;bottom:90px}
@@ -73,8 +79,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="modes">
 <button id="mPath" class="active">1. Flight path<small>Click to add aircraft point</small></button>
 <button id="mAoi">2. Draw AOI<small>Two clicks for rectangle corners</small></button>
-<button id="mSnr" class="layerBtn">SNR map<small>Analysis 1</small></button>
-<button id="mEll" class="layerBtn">Ellipse map<small>Analysis 2 · a90</small></button>
+<button id="mRuler">Ruler<small>Click points to measure</small></button>
+<button id="mSnr" class="layerBtn hidden">SNR map<small>After analysis</small></button>
+<button id="mEll" class="layerBtn hidden">Ellipse map<small>After analysis · a90</small></button>
 </div>
 <div class="legend">
   <b id="legTitle">SNR (dB) — auto scale</b>
@@ -109,8 +116,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="field"><label>Sys loss (dB)</label><input id="lsys" type="number" value="0" step="0.5"></div>
 <div class="field"><label>NF (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
 <div class="field"><label>BW (kHz)</label><input id="bw" type="number" value="25"></div>
-<div class="field"><label>Grid (N×N cells in AOI)</label><input id="gridn" type="number" value="24" min="10" max="40" title="AOI is split into N by N cells. Higher = finer heatmap, slower."></div>
-<div class="field"><label>LOS samples (ray samples)</label><input id="lossamp" type="number" value="16" min="6" max="40" title="Number of elevation samples along the aircraft-to-ground ray for DTM / diffraction."></div>
+<div class="field"><label>Min SNR req (dB)</label><input id="minSnr" type="number" value="10" step="0.5" title="Ellipse size is hidden where SNR is below this threshold."></div>
+<div class="field"><label>Grid (N×N cells in AOI)</label><input id="gridn" type="number" value="24" min="10" max="40"></div>
+<div class="field"><label>LOS samples (ray samples)</label><input id="lossamp" type="number" value="16" min="6" max="40"></div>
 <div class="field"><label>Frequency view</label>
 <select id="freqView">
 <option value="all">All frequencies (aggregate)</option>
@@ -125,9 +133,15 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="field"><label>DF RMS (°)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
 <div class="field"><label>Ellipse %</label><input id="ellP" type="number" value="90" min="50" max="99"></div>
 <label class="check"><input id="useDtm" type="checkbox" checked> Diffraction loss from DTM (knife-edge)</label>
+<div class="section">
+<h3>Rx antenna gain vs frequency</h3>
+<div id="gainRows"></div>
+<button id="addGain" type="button" style="border:0;border-radius:10px;padding:8px 10px;background:#1e3a5f;color:#fff;margin-top:4px">+ Add frequency</button>
+<p class="hint">Gain (dBi) is interpolated between the frequencies you enter. Used in the link budget as Gr.</p>
 </div>
-<div class="row"><button id="clearBtn">Clear</button><button id="saveBtn">Save</button><button id="loadBtn">Load</button></div>
-<p class="hint">After analysis, use <b>Frequency view</b> to inspect each analyzed frequency separately. Grid = AOI resolution (N×N cells). LOS samples = points sampled along the aircraft→ground ray for DTM/diffraction. Run Analysis computes SNR + DF ellipse 90%.</p>
+</div>
+<div class="row"><button id="clearBtn">Clear drawing</button><button id="clearRuler">Clear ruler</button></div>
+<p class="hint">Settings, antenna table, path and AOI are saved automatically and restored after refresh. After analysis use Frequency view. Ellipse a90 is shown only where SNR ≥ Min SNR req.</p>
 <div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
