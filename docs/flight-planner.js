@@ -1,35 +1,20 @@
 const C=299792458,R=6371000,K_EFF=4/3;
-const GAIN=[[30,-35],[60,-24.5],[90,-12.5],[500,-1],[1000,3],[2000,3],[3000,2],[4500,2],[5000,2],[6000,4]];
+const DEFAULT_GAIN=[[30,-35],[60,-24.5],[90,-12.5],[500,-1],[1000,3],[2000,3],[3000,2],[4500,2],[5000,2],[6000,4]];
 const $=id=>document.getElementById(id);
+const FIELD_IDS=['pt','alt','fmin','fmax','fsteps','psamp','lpol','lsys','nf','bw','minSnr','gridn','lossamp','viewMode','wpIndex','dfSig','ellP','useDtm'];
 const map=L.map('map',{zoomControl:true}).setView([31.8,35.0],7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'OSM'}).addTo(map);
-const heatLayer=L.layerGroup().addTo(map),aoiLayer=L.layerGroup().addTo(map),pathLayer=L.layerGroup().addTo(map);
+const heatLayer=L.layerGroup().addTo(map),aoiLayer=L.layerGroup().addTo(map),pathLayer=L.layerGroup().addTo(map),rulerLayer=L.layerGroup().addTo(map);
 let mode='path',path=[],markers=[],aoi=null,aoiCorners=[],hasAnalysis=false,dem=null,elevCache={},dtmSource='',demStats={min:0,max:0,mean:0},lastCells=[],heatKind='snr',ellScale={cmin:0,cmax:1},snrScale={cmin:0,cmax:1};
-let progT0=0,progLastUi=0;
+let progT0=0,progLastUi=0,gainTable=DEFAULT_GAIN.map(r=>[r[0],r[1]]),rulerPts=[],persistT=0;
 function showProgress(on){const w=$('progWrap');if(!w)return;w.classList.toggle('show',!!on);if(on){progT0=performance.now();progLastUi=0;setProgress(0,'Starting…')}}
-function setProgress(pct,label){
-  pct=Math.max(0,Math.min(100,pct));
-  const now=performance.now();
-  if(pct<100&&now-progLastUi<80) return;
-  progLastUi=now;
-  if(label)$('progLabel').textContent=label;
-  $('progPct').textContent=Math.round(pct)+'%';
-  $('progFill').style.width=pct+'%';
-  const elapsed=(now-progT0)/1000;
-  if(pct>=0.5&&pct<100){
-    const eta=elapsed*(100-pct)/Math.max(pct,0.01);
-    const m=Math.floor(eta/60),s=Math.max(0,Math.round(eta%60));
-    $('progEta').textContent=m>0?('~'+m+' min '+s+' s left · '+elapsed.toFixed(0)+' s elapsed'):('~'+s+' s left · '+elapsed.toFixed(0)+' s elapsed');
-  }else if(pct>=100){
-    $('progEta').textContent='Done in '+elapsed.toFixed(1)+' s';
-  }else{
-    $('progEta').textContent='Estimating time…';
-  }
-}
+function setProgress(pct,label){pct=Math.max(0,Math.min(100,pct));const now=performance.now();if(pct<100&&now-progLastUi<80) return;progLastUi=now;if(label)$('progLabel').textContent=label;$('progPct').textContent=Math.round(pct)+'%';$('progFill').style.width=pct+'%';const elapsed=(now-progT0)/1000;if(pct>=0.5&&pct<100){const eta=elapsed*(100-pct)/Math.max(pct,0.01);const m=Math.floor(eta/60),s=Math.max(0,Math.round(eta%60));$('progEta').textContent=m>0?('~'+m+' min '+s+' s left · '+elapsed.toFixed(0)+' s elapsed'):('~'+s+' s left · '+elapsed.toFixed(0)+' s elapsed')}else if(pct>=100){$('progEta').textContent='Done in '+elapsed.toFixed(1)+' s'}else{$('progEta').textContent='Estimating time…'}}
 function yieldUi(){return new Promise(r=>setTimeout(r,0))}
-function interpGain(f){if(f<=GAIN[0][0])return GAIN[0][1];if(f>=GAIN[GAIN.length-1][0])return GAIN[GAIN.length-1][1];for(let i=1;i<GAIN.length;i++){const [f0,g0]=GAIN[i-1],[f1,g1]=GAIN[i];if(f<=f1)return g0+(g1-g0)*(f-f0)/(f1-f0)}return GAIN[GAIN.length-1][1]}
+function readGainTable(){const rows=[...document.querySelectorAll('#gainRows .gain-row')];const out=[];rows.forEach(row=>{const f=+row.querySelector('.gf').value,g=+row.querySelector('.gg').value;if(Number.isFinite(f)&&Number.isFinite(g)) out.push([f,g])});out.sort((a,b)=>a[0]-b[0]);gainTable=out.length?out:DEFAULT_GAIN.map(r=>[r[0],r[1]]);return gainTable}
+function renderGainTable(){const box=$('gainRows'); if(!box) return;box.innerHTML='';gainTable.forEach((row,i)=>{const d=document.createElement('div'); d.className='gain-row';d.innerHTML='<input class="gf" type="number" step="any" value="'+row[0]+'" title="MHz"><input class="gg" type="number" step="any" value="'+row[1]+'" title="dBi"><button type="button" data-i="'+i+'">×</button>';box.appendChild(d)});box.querySelectorAll('button').forEach(btn=>btn.onclick=()=>{const i=+btn.dataset.i; gainTable=gainTable.filter((_,k)=>k!==i); if(!gainTable.length) gainTable=DEFAULT_GAIN.map(r=>[r[0],r[1]]); renderGainTable(); persistSoon()});box.querySelectorAll('input').forEach(inp=>inp.addEventListener('change',()=>{readGainTable();persistSoon()}))}
+function interpGain(f){const G=gainTable.length?gainTable:DEFAULT_GAIN;if(f<=G[0][0])return G[0][1];if(f>=G[G.length-1][0])return G[G.length-1][1];for(let i=1;i<G.length;i++){const [f0,g0]=G[i-1],[f1,g1]=G[i];if(f<=f1)return g0+(g1-g0)*(f-f0)/(f1-f0)}return G[G.length-1][1]}
 function hav(a,b){const p=Math.PI/180,dLat=(b.lat-a.lat)*p,dLon=(b.lng-a.lng)*p,x=Math.sin(dLat/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)))}
-function params(){const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(10,+$('gridn').value|0),losN:Math.max(6,+$('lossamp').value|0),view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0),useDtm:$('useDtm').checked,dfSig:Math.max(0.05,+$('dfSig').value),ellP:Math.max(50,Math.min(99,+$('ellP').value))}}
+function params(){readGainTable();const fmin=+$('fmin').value,fmax=Math.max(+$('fmax').value,fmin),steps=Math.max(1,+$('fsteps').value|0);const freqs=steps===1?[fmin]:Array.from({length:steps},(_,i)=>fmin+(fmax-fmin)*i/(steps-1));return{pt:+$('pt').value,altM:+$('alt').value*304.8,freqs,lpol:+$('lpol').value,lsys:+$('lsys').value,nf:+$('nf').value,bwHz:Math.max(100,+$('bw').value*1000),samples:Math.max(2,+$('psamp').value|0),n:Math.max(10,+$('gridn').value|0),losN:Math.max(6,+$('lossamp').value|0),view:$('viewMode').value,wpIndex:Math.max(1,+$('wpIndex').value|0),useDtm:$('useDtm').checked,dfSig:Math.max(0.05,+$('dfSig').value),ellP:Math.max(50,Math.min(99,+$('ellP').value)),minSnr:+$('minSnr').value}}
 function linkBudget(ac,ground,p,freq,gElev,extraLoss){const horiz=hav(ac,ground);const dh=p.altM-(gElev||0);const d=Math.sqrt(horiz*horiz+dh*dh);const fspl=d<=1?0:20*Math.log10(4*Math.PI*d*(freq*1e6)/C);const gr=interpGain(freq);const noise=-174+10*Math.log10(p.bwHz)+p.nf;const Lextra=extraLoss||0;const pr=p.pt+gr-fspl-p.lpol-p.lsys-Lextra;return{d,horiz,fspl,gr,noise,pr,snr:pr-noise,freq,Lextra}}
 function resample(pts,n){if(!pts.length)return[];if(pts.length===1||n<=1)return[pts[0]];const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));const total=cum[cum.length-1];if(total<=0)return[pts[0]];const out=[];for(let k=0;k<n;k++){const target=total*k/(n-1);let seg=1;while(seg<cum.length-1&&cum[seg]<target)seg++;const a=pts[seg-1],b=pts[seg],len=cum[seg]-cum[seg-1],t=len?(target-cum[seg-1])/len:0;out.push({lat:a.lat+t*(b.lat-a.lat),lng:a.lng+t*(b.lng-a.lng)})}return out}
 function color(v,vmin,vmax){const x=Math.max(0,Math.min(1,(v-vmin)/Math.max(vmax-vmin,1e-9)));const s=[[0,[213,43,30]],[.35,[247,148,30]],[.55,[255,221,51]],[.75,[140,200,60]],[1,[46,204,64]]];for(let i=0;i<s.length-1;i++){if(x<=s[i+1][0]){const t=(x-s[i][0])/(s[i+1][0]-s[i][0]||1);const c=s[i][1].map((a,k)=>Math.round(a+t*(s[i+1][1][k]-a)));return 'rgb('+c[0]+','+c[1]+','+c[2]+')'}}return 'rgb(46,204,64)'}
@@ -55,141 +40,46 @@ function ellipseA90(ap,sigmaRad,pPct){const phi=ap.phi,s=Math.sin(phi);if(!(phi>
 function fmtKm(m){if(!isFinite(m)) return '∞';if(m>=1000) return (m/1000).toFixed(2)+' km';return m.toFixed(0)+' m'}
 function setBanner(html){$('banner').innerHTML=html}
 function ready(){return path.length>=1&&!!aoi}
-function updateRun(){$('runBtn').disabled=!ready();$('runBtn').textContent=ready()?'Run Analysis':'Run Analysis — missing path or AOI'}
-function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-';updateRun();if(!aoi)setBanner('<b>Step 2:</b> Draw AOI with two clicks.');else if(!hasAnalysis)setBanner('<b>Step 3:</b> Click Run Analysis.')}
-function setAoi(bounds){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer);updateRun();if(ready())setBanner('<b>Ready:</b> Click Run Analysis.')}
-function setMode(next){mode=next;['mPath','mAoi'].forEach(id=>$(id).classList.remove('active'));$(next==='path'?'mPath':'mAoi').classList.add('active');aoiCorners=[];if(next==='path')setBanner('<b>Path mode:</b> Click on the map.');if(next==='aoi')setBanner('<b>AOI mode:</b> Two corners of rectangle.')}
-$('mPath').onclick=()=>setMode('path');$('mAoi').onclick=()=>setMode('aoi');
+function minSnrReq(){const v=+$('minSnr').value; return Number.isFinite(v)?v:10}
+function snrOk(v){return Number.isFinite(v)&&v>=minSnrReq()}
+function updateModeButtons(){$('mPath').classList.toggle('hidden',hasAnalysis);$('mAoi').classList.toggle('hidden',hasAnalysis);$('mSnr').classList.toggle('hidden',!hasAnalysis);$('mEll').classList.toggle('hidden',!hasAnalysis)}
+function updateRun(){$('runBtn').disabled=!ready();$('runBtn').textContent=ready()?'Run Analysis':'Run Analysis — missing path or AOI';updateModeButtons()}
+function persistSoon(){clearTimeout(persistT);persistT=setTimeout(persistAll,250)}
+function persistAll(){readGainTable();const fields={};FIELD_IDS.forEach(id=>{const el=$(id); if(!el) return; fields[id]=el.type==='checkbox'?el.checked:el.value});const payload={fields,gainTable,path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null,center:map.getCenter(),zoom:map.getZoom()};try{localStorage.setItem('fp-cfg',JSON.stringify(payload))}catch(e){}}
+function restoreAll(){let data=null;try{data=JSON.parse(localStorage.getItem('fp-cfg')||'null')}catch(e){data=null}if(!data){try{const old=JSON.parse(localStorage.getItem('fp-mission')||'null');if(old) data={path:old.path,aoi:old.aoi}}catch(e){}}if(data&&data.fields){FIELD_IDS.forEach(id=>{const el=$(id); if(!el||data.fields[id]==null) return;if(el.type==='checkbox') el.checked=!!data.fields[id]; else el.value=data.fields[id]})}if(data&&Array.isArray(data.gainTable)&&data.gainTable.length) gainTable=data.gainTable.map(r=>[ +r[0], +r[1] ]);renderGainTable();if(data&&Array.isArray(data.path)&&data.path.length){data.path.forEach(p=>addPathPoint(p.lat,p.lng,true))}if(data&&data.aoi) setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]),true);if(data&&data.center) map.setView(data.center,data.zoom||map.getZoom());updateRun()}
+function addPathPoint(lat,lng,silent){const p={lat,lng};const m=L.marker([lat,lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath();persistSoon()});markers.push(m);path.push(p);redrawPath();if(!silent) persistSoon()}
+function redrawPath(){pathLayer.clearLayers();markers.forEach((m,i)=>{m.setTooltipContent(String(i+1));pathLayer.addLayer(m)});if(path.length>1)L.polyline(path.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:4}).addTo(pathLayer);const len=path.reduce((s,_,i)=>i?s+hav(path[i-1],path[i]):0,0);$('kPts').textContent=path.length;$('kLen').textContent=path.length?(len/1000).toFixed(1)+' km':'-';updateRun();if(!hasAnalysis){if(!aoi)setBanner('<b>Step 2:</b> Draw AOI with two clicks.');else setBanner('<b>Step 3:</b> Click Run Analysis.')}}
+function setAoi(bounds,silent){aoi=bounds;aoiLayer.clearLayers();L.rectangle(bounds,{color:'#60a5fa',weight:2,fillOpacity:.08}).addTo(aoiLayer);updateRun();if(ready()&&!hasAnalysis)setBanner('<b>Ready:</b> Click Run Analysis.');if(!silent) persistSoon()}
+function setMode(next){mode=next;['mPath','mAoi','mRuler'].forEach(id=>{const el=$(id); if(el) el.classList.remove('active')});if(next==='path')$('mPath').classList.add('active');if(next==='aoi')$('mAoi').classList.add('active');if(next==='ruler')$('mRuler').classList.add('active');aoiCorners=[];if(next==='path')setBanner('<b>Path mode:</b> Click on the map.');if(next==='aoi')setBanner('<b>AOI mode:</b> Two corners of rectangle.');if(next==='ruler')setBanner('<b>Ruler:</b> Click points. Distance is shown on the line. Clear ruler to start over.')}
+function redrawRuler(){rulerLayer.clearLayers();if(!rulerPts.length) return;rulerPts.forEach((p,i)=>L.circleMarker([p.lat,p.lng],{radius:5,color:'#f59e0b',weight:2,fillColor:'#fde68a',fillOpacity:1}).bindTooltip(String(i+1),{permanent:false}).addTo(rulerLayer));if(rulerPts.length>1){L.polyline(rulerPts.map(p=>[p.lat,p.lng]),{color:'#f59e0b',weight:3,dashArray:'6 4'}).addTo(rulerLayer);let total=0;for(let i=1;i<rulerPts.length;i++){const d=hav(rulerPts[i-1],rulerPts[i]); total+=d;const mid={lat:(rulerPts[i-1].lat+rulerPts[i].lat)/2,lng:(rulerPts[i-1].lng+rulerPts[i].lng)/2};L.marker([mid.lat,mid.lng],{icon:L.divIcon({className:'',html:'<div class="ruler-tip">'+fmtKm(d)+'</div>',iconSize:[72,20],iconAnchor:[36,10]})}).addTo(rulerLayer)}const last=rulerPts[rulerPts.length-1];L.marker([last.lat,last.lng],{icon:L.divIcon({className:'',html:'<div class="ruler-tip">Σ '+fmtKm(total)+'</div>',iconSize:[90,20],iconAnchor:[10,-8]})}).addTo(rulerLayer);setBanner('<b>Ruler:</b> last segment '+fmtKm(hav(rulerPts[rulerPts.length-2],last))+' · total <b>'+fmtKm(total)+'</b>')}}
+$('mPath').onclick=()=>setMode('path');
+$('mAoi').onclick=()=>setMode('aoi');
+$('mRuler').onclick=()=>setMode('ruler');
 $('toggleSheet').onclick=()=>$('sheet').classList.toggle('open');
-map.on('click',e=>{if(mode==='path'){const p={lat:e.latlng.lat,lng:e.latlng.lng};const m=L.marker(e.latlng,{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p);redrawPath()}else{aoiCorners.push(e.latlng);if(aoiCorners.length===1)setBanner('<b>AOI:</b> Click opposite corner.');else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[];}}});
-async function runAnalysis(){
-  if(!path.length){$('sheet').classList.add('open');$('result').textContent='No path.';return}
-  if(!aoi){$('sheet').classList.add('open');$('result').textContent='No AOI.';return}
-  const p=params();
-  $('runBtn').disabled=true;$('runBtn').textContent='Running…';
-  showProgress(true);setProgress(1,'Starting analysis…');
-  try{
-    const samples=resample(path,p.samples);
-    const ac=p.view==='single'?[samples[Math.min(samples.length-1,p.wpIndex-1)]]:samples;
-    const pad=aoi.pad(0.2);
-    const pathB=L.latLngBounds(path.map(x=>[x.lat,x.lng]));
-    const union=pad.extend(pathB.getSouthWest()).extend(pathB.getNorthEast());
-    if(p.useDtm){setBanner('<b>DTM:</b> Loading elevations…');setProgress(5,'Loading DTM…');await buildDem(union,36,36);setProgress(30,'DTM ready · computing…');setBanner('<b>DTM:</b> '+dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m')} else {dem=null;demStats={min:0,max:0,mean:0};setProgress(30,'Computing SNR + ellipse…')}
-    const sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;
-    const totalCells=n*n;const cells=[];let done=0;
-    for(let iy=0;iy<n;iy++){
-      for(let ix=0;ix<n;ix++){
-        const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n;
-        const lng0=sw.lng+(ne.lng-sw.lng)*ix/n,lng1=sw.lng+(ne.lng-sw.lng)*(ix+1)/n;
-        const c={lat:(lat0+lat1)/2,lng:(lng0+lng1)/2};
-        const gElev=p.useDtm?elevAt(c.lat,c.lng):0;
-        const s=statsForCell(ac,c,p,gElev);
-        const v=p.view==='max'?s.max:s.mean;
-        const ap=bestAperture(c,samples,p.altM,gElev);
-        const a90=ellipseA90(ap,p.dfSig*Math.PI/180,p.ellP);
-        done++;
-        if(isFinite(v)) cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,a90,phi:ap.phi,perFreq:s.perFreq});
-        if(done%Math.max(1,Math.floor(totalCells/40))===0||done===totalCells){setProgress(30+65*(done/totalCells),'SNR + ellipse · cell '+done+'/'+totalCells);await yieldUi()}
-      }
-    }
-    setProgress(96,'Drawing maps…');await yieldUi();
-    lastCells=cells;
-    const finiteEll=cells.map(c=>c.a90).filter(isFinite).sort((a,b)=>a-b);
-    const qe=(arr,t)=>arr.length?arr[Math.max(0,Math.min(arr.length-1,Math.floor(t*(arr.length-1))))]:1;
-    let emin=qe(finiteEll,0.05),emax=qe(finiteEll,0.95);
-    if(!(emax>emin)){emin=200;emax=5000}
-    const padE=(emax-emin)*0.08;emin=Math.max(1,emin-padE);emax=emax+padE;
-    ellScale={cmin:emin,cmax:emax};
-    const vals=cells.map(c=>c.v).sort((a,b)=>a-b);
-    const q=(t)=>vals.length?vals[Math.max(0,Math.min(vals.length-1,Math.floor(t*(vals.length-1))))]:0;
-    let cmin=q(0.05),cmax=q(0.95);
-    if(cmax-cmin<3){const mid=(cmin+cmax)/2;cmin=mid-3;cmax=mid+3}
-    const padC=(cmax-cmin)*0.05;cmin-=padC;cmax+=padC;
-    snrScale={cmin,cmax};
-    let sum=0,mx=-Infinity,mn=Infinity,diffSum=0,eSum=0,eN=0,phiSum=0,eMx=0;
-    for(const cell of cells){sum+=cell.v;mx=Math.max(mx,cell.v);mn=Math.min(mn,cell.v);diffSum+=cell.diff;if(isFinite(cell.a90)){eSum+=cell.a90;eN++;eMx=Math.max(eMx,cell.a90)}phiSum+=cell.phi||0}
-    const avg=cells.length?sum/cells.length:NaN,avgDiff=cells.length?diffSum/cells.length:0,avgE=eN?eSum/eN:NaN,avgPhi=cells.length?(phiSum/cells.length)*180/Math.PI:0;
-    $('kAvg').textContent=isFinite(avg)?avg.toFixed(1)+' dB':'-';$('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';$('kDiff').textContent=avgDiff.toFixed(1)+' dB';$('kEll').textContent=isFinite(avgE)?fmtKm(avgE):'∞';$('kPhi').textContent=avgPhi.toFixed(0)+'°';
-    fillFreqView(p.freqs);hasAnalysis=true;$('sheet').classList.add('open');paintHeat('snr');
-    const altKft=(p.altM/304.8).toFixed(1),elapsed=((performance.now()-progT0)/1000).toFixed(1);
-    $('result').innerHTML='<b>Both analyses complete</b> · '+elapsed+' s<br>Altitude: <b>'+altKft+' KFT</b> · DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br><b>1 · SNR</b> avg/max/min: <b>'+(isFinite(avg)?avg.toFixed(2):'-')+'</b> / '+(isFinite(mx)?mx.toFixed(2):'-')+' / '+(isFinite(mn)?mn.toFixed(2):'-')+' dB · diffraction '+avgDiff.toFixed(2)+' dB<br><b>2 · DF ellipse '+p.ellP+'%</b> · σ='+p.dfSig+'° · path samples '+samples.length+'<br>Mean major semi-axis: <b>'+(isFinite(avgE)?fmtKm(avgE):'∞')+'</b> · max '+fmtKm(eMx)+'<br>Mean angular aperture: <b>'+avgPhi.toFixed(1)+'°</b><br>Click «Ellipse map» for a90 heat map (green = small)';
-    setBanner('<b>SNR + ellipse ready.</b> Switch map with the buttons.');
-    setProgress(100,'Done');map.fitBounds(aoi.pad(0.08));setTimeout(()=>showProgress(false),900);
-  }catch(err){$('sheet').classList.add('open');$('result').textContent='Error: '+(err.message||err);setBanner('<b>Error.</b> Try again.');showProgress(false)}finally{updateRun()}
-}
-function updateScaleInputs(){
-  const sc=heatKind==='ell'?ellScale:snrScale;
-  if(heatKind==='ell'){
-    $('scaleMin').value=(sc.cmin/1000).toFixed(2);
-    $('scaleMax').value=(sc.cmax/1000).toFixed(2);
-  }else{
-    $('scaleMin').value=sc.cmin.toFixed(1);
-    $('scaleMax').value=sc.cmax.toFixed(1);
-  }
-  $('scaleControls').style.display=hasAnalysis?'flex':'none';
-}
-function applyScale(){
-  if(!hasAnalysis) return;
-  let vmin=+$('scaleMin').value, vmax=+$('scaleMax').value;
-  if(!(vmax>vmin)) return;
-  if(heatKind==='ell'){
-    ellScale={cmin:vmin*1000,cmax:vmax*1000};
-  }else{
-    snrScale={cmin:vmin,cmax:vmax};
-  }
-  paintHeat(heatKind);
-}
-function fillFreqView(freqs){
-  const sel=$('freqView'); if(!sel) return;
-  const prev=sel.value;
-  sel.innerHTML='';
-  const o0=document.createElement('option'); o0.value='all'; o0.textContent=freqs.length>1?('All frequencies · aggregate ('+freqs.length+')'):(freqs[0].toFixed(3)+' MHz');
-  sel.appendChild(o0);
-  if(freqs.length>1){
-    freqs.forEach((f,i)=>{const o=document.createElement('option'); o.value=String(i); o.textContent=f.toFixed(3)+' MHz'; sel.appendChild(o);});
-  }
-  sel.value=(prev!=='all' && [...sel.options].some(o=>o.value===prev))?prev:'all';
-}
+$('addGain').onclick=()=>{readGainTable();gainTable.push([(gainTable[gainTable.length-1]||[100,0])[0]+100,0]);renderGainTable();persistSoon()};
+$('clearRuler').onclick=()=>{rulerPts=[];rulerLayer.clearLayers();if(mode==='ruler')setBanner('<b>Ruler:</b> Click points to measure.')};
+map.on('click',e=>{if(mode==='ruler'){rulerPts.push({lat:e.latlng.lat,lng:e.latlng.lng});redrawRuler();return}if(hasAnalysis) return;if(mode==='path'){addPathPoint(e.latlng.lat,e.latlng.lng)}else if(mode==='aoi'){aoiCorners.push(e.latlng);if(aoiCorners.length===1)setBanner('<b>AOI:</b> Click opposite corner.');else{setAoi(L.latLngBounds(aoiCorners[0],aoiCorners[1]));aoiCorners=[]}}});
+async function runAnalysis(){if(!path.length){$('sheet').classList.add('open');$('result').textContent='No path.';return}if(!aoi){$('sheet').classList.add('open');$('result').textContent='No AOI.';return}const p=params();$('runBtn').disabled=true;$('runBtn').textContent='Running…';showProgress(true);setProgress(1,'Starting analysis…');try{const samples=resample(path,p.samples);const ac=p.view==='single'?[samples[Math.min(samples.length-1,p.wpIndex-1)]]:samples;const pad=aoi.pad(0.2);const pathB=L.latLngBounds(path.map(x=>[x.lat,x.lng]));const union=pad.extend(pathB.getSouthWest()).extend(pathB.getNorthEast());if(p.useDtm){setBanner('<b>DTM:</b> Loading elevations…');setProgress(5,'Loading DTM…');await buildDem(union,36,36);setProgress(30,'DTM ready · computing…');setBanner('<b>DTM:</b> '+dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m')} else {dem=null;demStats={min:0,max:0,mean:0};setProgress(30,'Computing SNR + ellipse…')}const sw=aoi.getSouthWest(),ne=aoi.getNorthEast(),n=p.n;const totalCells=n*n;const cells=[];let done=0;for(let iy=0;iy<n;iy++){for(let ix=0;ix<n;ix++){const lat0=sw.lat+(ne.lat-sw.lat)*iy/n,lat1=sw.lat+(ne.lat-sw.lat)*(iy+1)/n;const lng0=sw.lng+(ne.lng-sw.lng)*ix/n,lng1=sw.lng+(ne.lng-sw.lng)*(ix+1)/n;const c={lat:(lat0+lat1)/2,lng:(lng0+lng1)/2};const gElev=p.useDtm?elevAt(c.lat,c.lng):0;const s=statsForCell(ac,c,p,gElev);const v=p.view==='max'?s.max:s.mean;const ap=bestAperture(c,samples,p.altM,gElev);const a90=ellipseA90(ap,p.dfSig*Math.PI/180,p.ellP);done++;if(isFinite(v)) cells.push({lat0,lng0,lat1,lng1,v,gElev,diff:s.diffMean,a90,phi:ap.phi,perFreq:s.perFreq});if(done%Math.max(1,Math.floor(totalCells/40))===0||done===totalCells){setProgress(30+65*(done/totalCells),'SNR + ellipse · cell '+done+'/'+totalCells);await yieldUi()}}}setProgress(96,'Drawing maps…');await yieldUi();lastCells=cells;const finiteEll=cells.filter(c=>snrOk(c.v)&&isFinite(c.a90)).map(c=>c.a90).sort((a,b)=>a-b);const qe=(arr,t)=>arr.length?arr[Math.max(0,Math.min(arr.length-1,Math.floor(t*(arr.length-1))))]:1;let emin=qe(finiteEll,0.05),emax=qe(finiteEll,0.95);if(!(emax>emin)){emin=200;emax=5000}const padE=(emax-emin)*0.08;emin=Math.max(1,emin-padE);emax=emax+padE;ellScale={cmin:emin,cmax:emax};const vals=cells.map(c=>c.v).sort((a,b)=>a-b);const q=(t)=>vals.length?vals[Math.max(0,Math.min(vals.length-1,Math.floor(t*(vals.length-1))))]:0;let cmin=q(0.05),cmax=q(0.95);if(cmax-cmin<3){const mid=(cmin+cmax)/2;cmin=mid-3;cmax=mid+3}const padC=(cmax-cmin)*0.05;cmin-=padC;cmax+=padC;snrScale={cmin,cmax};hasAnalysis=true;updateModeButtons();$('sheet').classList.add('open');fillFreqView(p.freqs);paintHeat('snr');updateKpisFromCells();const altKft=(p.altM/304.8).toFixed(1),elapsed=((performance.now()-progT0)/1000).toFixed(1);const pass=lastCells.filter(c=>snrOk(cellSnr(c))).length;$('result').innerHTML='<b>Analysis complete</b> · '+elapsed+' s<br>Altitude: <b>'+altKft+' KFT</b> · Min SNR req <b>'+p.minSnr+' dB</b> · cells passing '+pass+'/'+lastCells.length+'<br>DTM '+(p.useDtm?(dtmSource+' · '+demStats.min.toFixed(0)+'…'+demStats.max.toFixed(0)+' m'):'OFF')+'<br>Rx gain table: '+gainTable.map(r=>r[0]+' MHz/'+r[1]+' dBi').join(', ');setBanner('<b>Results ready.</b> Switch SNR / Ellipse maps. Path and AOI drawing are locked until Clear.');setProgress(100,'Done');map.fitBounds(aoi.pad(0.08));setTimeout(()=>showProgress(false),900)}catch(err){$('sheet').classList.add('open');$('result').textContent='Error: '+(err.message||err);setBanner('<b>Error.</b> Try again.');showProgress(false)}finally{updateRun()}}
+function updateScaleInputs(){const sc=heatKind==='ell'?ellScale:snrScale;if(heatKind==='ell'){$('scaleMin').value=(sc.cmin/1000).toFixed(2);$('scaleMax').value=(sc.cmax/1000).toFixed(2)}else{$('scaleMin').value=sc.cmin.toFixed(1);$('scaleMax').value=sc.cmax.toFixed(1)}$('scaleControls').style.display=hasAnalysis?'flex':'none'}
+function applyScale(){if(!hasAnalysis) return;let vmin=+$('scaleMin').value, vmax=+$('scaleMax').value;if(!(vmax>vmin)) return;if(heatKind==='ell') ellScale={cmin:vmin*1000,cmax:vmax*1000};else snrScale={cmin:vmin,cmax:vmax};paintHeat(heatKind)}
+function fillFreqView(freqs){const sel=$('freqView'); if(!sel) return;const prev=sel.value;sel.innerHTML='';const o0=document.createElement('option'); o0.value='all'; o0.textContent=freqs.length>1?('All frequencies · aggregate ('+freqs.length+')'):(freqs[0].toFixed(3)+' MHz');sel.appendChild(o0);if(freqs.length>1) freqs.forEach((f,i)=>{const o=document.createElement('option'); o.value=String(i); o.textContent=f.toFixed(3)+' MHz'; sel.appendChild(o)});sel.value=(prev!=='all' && [...sel.options].some(o=>o.value===prev))?prev:'all'}
 function selectedFreqIdx(){const sel=$('freqView'); if(!sel||sel.value==='all') return 'all'; return +sel.value}
 function cellSnr(cell){const idx=selectedFreqIdx(); if(idx==='all'||!cell.perFreq||!cell.perFreq[idx]) return cell.v; return cell.perFreq[idx].v}
 function cellDiff(cell){const idx=selectedFreqIdx(); if(idx==='all'||!cell.perFreq||!cell.perFreq[idx]) return cell.diff; return cell.perFreq[idx].diffMean}
 function freqLabel(){const idx=selectedFreqIdx(); if(idx==='all') return 'all freqs'; const sel=$('freqView'); return sel?sel.options[sel.selectedIndex].textContent:'freq'}
-function paintHeat(kind){
-  heatKind=kind;
-  ['mSnr','mEll'].forEach(id=>{const el=$(id);if(el)el.classList.remove('layerOn')});
-  if(kind==='ell') $('mEll').classList.add('layerOn'); else $('mSnr').classList.add('layerOn');
-  heatLayer.clearLayers();if(!lastCells.length) return;
-  if(kind==='ell'){
-    const {cmin,cmax}=ellScale;
-    $('legMin').textContent=fmtKm(cmax);$('legMax').textContent=fmtKm(cmin);$('legMid').textContent=fmtKm((cmin+cmax)/2);
-    $('legTitle').textContent='Semi-axis a90 — green = small';
-    $('legHint').textContent='Red = large · Green = small';
-    for(const cell of lastCells){const val=isFinite(cell.a90)?cell.a90:cmax;const col=color(-val,-cmax,-cmin);const tip='a90 '+fmtKm(cell.a90)+' · aperture '+(cell.phi*180/Math.PI).toFixed(1)+'° · SNR '+cellSnr(cell).toFixed(1)+' dB ('+freqLabel()+')';L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:col}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}
-  }else{
-    const {cmin,cmax}=snrScale;
-    $('legMin').textContent=cmin.toFixed(1);$('legMax').textContent=cmax.toFixed(1);$('legMid').textContent=((cmin+cmax)/2).toFixed(1);
-    $('legTitle').textContent='SNR (dB) — custom scale';
-    $('legHint').textContent='Red = weak · Green = strong';
-    for(const cell of lastCells){const v=cellSnr(cell);const tip=v.toFixed(1)+' dB · '+freqLabel()+' · a90 '+fmtKm(cell.a90)+' · aperture '+(cell.phi*180/Math.PI).toFixed(1)+'°';L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:color(v,cmin,cmax)}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}
-  }
-  updateScaleInputs();
-}
+function ellText(cell){return snrOk(cellSnr(cell))?fmtKm(cell.a90):'hidden (< min SNR)'}
+function paintHeat(kind){heatKind=kind;['mSnr','mEll'].forEach(id=>{const el=$(id);if(el)el.classList.remove('layerOn')});if(kind==='ell') $('mEll').classList.add('layerOn'); else $('mSnr').classList.add('layerOn');heatLayer.clearLayers();if(!lastCells.length) return;if(kind==='ell'){const {cmin,cmax}=ellScale;$('legMin').textContent=fmtKm(cmax);$('legMax').textContent=fmtKm(cmin);$('legMid').textContent=fmtKm((cmin+cmax)/2);$('legTitle').textContent='Semi-axis a90 — green = small';$('legHint').textContent='Gray = SNR below min req';for(const cell of lastCells){const ok=snrOk(cellSnr(cell));const val=ok&&isFinite(cell.a90)?cell.a90:null;const col=ok?color(-(val||cmax),-cmax,-cmin):'#334155';const tip=ok?('a90 '+fmtKm(cell.a90)+' · aperture '+(cell.phi*180/Math.PI).toFixed(1)+'° · SNR '+cellSnr(cell).toFixed(1)+' dB'):('SNR '+cellSnr(cell).toFixed(1)+' dB < min '+minSnrReq()+' dB · ellipse hidden');L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:ok?.75:.35,fillColor:col}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}}else{const {cmin,cmax}=snrScale;$('legMin').textContent=cmin.toFixed(1);$('legMax').textContent=cmax.toFixed(1);$('legMid').textContent=((cmin+cmax)/2).toFixed(1);$('legTitle').textContent='SNR (dB) — custom scale';$('legHint').textContent='Red = weak · Green = strong';for(const cell of lastCells){const v=cellSnr(cell);const tip=v.toFixed(1)+' dB · '+freqLabel()+' · a90 '+ellText(cell);L.rectangle([[cell.lat0,cell.lng0],[cell.lat1,cell.lng1]],{stroke:false,fill:true,fillOpacity:.75,fillColor:color(v,cmin,cmax)}).bindTooltip(tip,{sticky:true}).addTo(heatLayer)}}updateScaleInputs()}
+function updateKpisFromCells(){if(!lastCells.length) return;let sum=0,mx=-Infinity,n=0,dSum=0,eSum=0,eN=0,phiSum=0;for(const cell of lastCells){const v=cellSnr(cell); if(!isFinite(v)) continue;sum+=v; mx=Math.max(mx,v); n++; dSum+=cellDiff(cell)||0;if(snrOk(v)&&isFinite(cell.a90)){eSum+=cell.a90;eN++;phiSum+=cell.phi||0}}$('kAvg').textContent=n?(sum/n).toFixed(1)+' dB':'-';$('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';$('kDiff').textContent=n?(dSum/n).toFixed(1)+' dB':'-';$('kEll').textContent=eN?fmtKm(eSum/eN):'—';$('kPhi').textContent=eN?((phiSum/eN)*180/Math.PI).toFixed(0)+'°':'-'}
 $('freqView').onchange=()=>{if(!hasAnalysis) return; updateKpisFromCells(); paintHeat(heatKind)};
-function updateKpisFromCells(){
-  if(!lastCells.length) return;
-  let sum=0,mx=-Infinity,n=0,dSum=0;
-  for(const cell of lastCells){const v=cellSnr(cell); if(!isFinite(v)) continue; sum+=v; mx=Math.max(mx,v); n++; dSum+=cellDiff(cell)||0}
-  $('kAvg').textContent=n? (sum/n).toFixed(1)+' dB':'-';
-  $('kMax').textContent=isFinite(mx)?mx.toFixed(1)+' dB':'-';
-  $('kDiff').textContent=n?(dSum/n).toFixed(1)+' dB':'-';
-}
 $('mSnr').onclick=()=>{if(hasAnalysis)paintHeat('snr')};
 $('mEll').onclick=()=>{if(hasAnalysis)paintHeat('ell')};
 $('runBtn').onclick=runAnalysis;
 $('scaleApply').onclick=applyScale;
 $('scaleMin').addEventListener('keydown',e=>{if(e.key==='Enter')applyScale()});
 $('scaleMax').addEventListener('keydown',e=>{if(e.key==='Enter')applyScale()});
-$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;elevCache={};lastCells=[];showProgress(false);$('scaleControls').style.display='none';$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('kEll').textContent='-';$('kPhi').textContent='-';$('result').textContent='Cleared.';const fv=$('freqView'); if(fv){fv.innerHTML='<option value="all">All frequencies (aggregate)</option>'; fv.value='all';}setMode('path');updateRun()}
-$('saveBtn').onclick=()=>{localStorage.setItem('fp-mission',JSON.stringify({path,aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null}));$('result').textContent='Saved.'}
-$('loadBtn').onclick=()=>{const raw=localStorage.getItem('fp-mission');if(!raw){$('result').textContent='Nothing saved.';return}const data=JSON.parse(raw);$('clearBtn').onclick();(data.path||[]).forEach(p=>{const m=L.marker([p.lat,p.lng],{draggable:true}).bindTooltip(String(path.length+1),{permanent:true,direction:'top'});m.on('dragend',()=>{const i=markers.indexOf(m),ll=m.getLatLng();path[i]={lat:ll.lat,lng:ll.lng};redrawPath()});markers.push(m);path.push(p)});redrawPath();if(data.aoi)setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]));$('result').textContent='Loaded.';}
+$('clearBtn').onclick=()=>{path=[];markers.forEach(m=>map.removeLayer(m));markers=[];pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();aoi=null;aoiCorners=[];hasAnalysis=false;dem=null;lastCells=[];showProgress(false);$('scaleControls').style.display='none';$('kPts').textContent='0';$('kLen').textContent='-';$('kAvg').textContent='-';$('kMax').textContent='-';$('kDiff').textContent='-';$('kEll').textContent='-';$('kPhi').textContent='-';$('result').textContent='Cleared drawing. Settings kept.';const fv=$('freqView'); if(fv){fv.innerHTML='<option value="all">All frequencies (aggregate)</option>'; fv.value='all';}setMode('path');updateRun();persistSoon()};
+FIELD_IDS.forEach(id=>{const el=$(id); if(!el) return; el.addEventListener('change',persistSoon); el.addEventListener('input',persistSoon)});
+map.on('moveend',persistSoon);
+renderGainTable();
+restoreAll();
 updateRun();
