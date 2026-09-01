@@ -120,25 +120,15 @@
   }
   const _redraw=redrawPath;
   redrawPath=function(){_redraw();stripPathNumbers();highlightWp()};
-  stripPathNumbers();
-  clampPointIndex();
-  highlightWp();
+  stripPathNumbers(); clampPointIndex(); highlightWp();
   let rerunT=0;
   function autoSingleHeat(){
-    $('viewMode').value='single';
-    highlightWp();
+    $('viewMode').value='single'; highlightWp();
     if(!path.length||!aoi) return;
-    clearTimeout(rerunT);
-    rerunT=setTimeout(function(){runAnalysis()},250);
+    clearTimeout(rerunT); rerunT=setTimeout(function(){runAnalysis()},250);
   }
-  if($('wpIndex')){
-    $('wpIndex').addEventListener('change',autoSingleHeat);
-    $('wpIndex').addEventListener('input',highlightWp);
-  }
-  if($('psamp')){
-    $('psamp').addEventListener('change',function(){clampPointIndex();highlightWp()});
-    $('psamp').addEventListener('input',function(){clampPointIndex();highlightWp()});
-  }
+  if($('wpIndex')){ $('wpIndex').addEventListener('change',autoSingleHeat); $('wpIndex').addEventListener('input',highlightWp); }
+  if($('psamp')){ $('psamp').addEventListener('change',function(){clampPointIndex();highlightWp()}); $('psamp').addEventListener('input',function(){clampPointIndex();highlightWp()}); }
   if($('viewMode')){
     $('viewMode').addEventListener('change',function(){
       highlightWp();
@@ -151,11 +141,26 @@
   function collectConfig(){
     readGainTable();
     const fields={};
-    FIELD_IDS.forEach(function(id){const el=$(id); if(!el) return; fields[id]=el.type==='checkbox'?el.checked:el.value});
+    FIELD_IDS.concat(['freqView']).forEach(function(id){const el=$(id); if(!el) return; fields[id]=el.type==='checkbox'?el.checked:el.value});
+    document.querySelectorAll('#sheet input, #sheet select').forEach(function(el){
+      if(!el.id) return;
+      fields[el.id]=el.type==='checkbox'?el.checked:el.value;
+    });
     fields.ellP='90'; fields.useDtm=true;
+    const antennaGain=gainTable.map(function(r){return {freqMHz:+r[0], gainDbi:+r[1]}});
     return {
-      app:'flight-planner', v:1, savedAt:new Date().toISOString(),
+      app:'flight-planner', v:2, savedAt:new Date().toISOString(),
+      parameters:{
+        txPowerDbm:+fields.pt, altitudeKft:+fields.alt,
+        minFreqMHz:+fields.fmin, maxFreqMHz:+fields.fmax, freqSteps:+fields.fsteps,
+        pathSamples:+fields.psamp, noiseFigureDb:+fields.nf, bandwidthKhz:+fields.bw,
+        minSnrReqDb:+fields.minSnr, gridN:+fields.gridn,
+        frequencyView:fields.freqView||'all', calculationType:fields.viewMode||'mean',
+        pointIndex:+fields.wpIndex||1, dfRmsDeg:+fields.dfSig,
+        ellipsePercent:90, dtmDiffraction:true
+      },
       fields:fields,
+      antennaGain:antennaGain,
       gainTable:gainTable.map(function(r){return [+r[0],+r[1]]}),
       path:path.map(function(p){return {lat:p.lat,lng:p.lng}}),
       aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null,
@@ -174,25 +179,34 @@
     if(!data||(data.app&&data.app!=='flight-planner')) throw new Error('Not a flight-planner configuration file');
     resetDrawing();
     if(data.fields){
-      FIELD_IDS.forEach(function(id){
+      Object.keys(data.fields).forEach(function(id){
         const el=$(id); if(!el||data.fields[id]==null) return;
         if(el.type==='checkbox') el.checked=!!data.fields[id]; else el.value=data.fields[id];
       });
     }
+    if(data.parameters){
+      const m={pt:'txPowerDbm',alt:'altitudeKft',fmin:'minFreqMHz',fmax:'maxFreqMHz',fsteps:'freqSteps',psamp:'pathSamples',nf:'noiseFigureDb',bw:'bandwidthKhz',minSnr:'minSnrReqDb',gridn:'gridN',freqView:'frequencyView',viewMode:'calculationType',wpIndex:'pointIndex',dfSig:'dfRmsDeg'};
+      Object.keys(m).forEach(function(id){
+        const el=$(id); if(!el||data.parameters[m[id]]==null) return;
+        if(el.type==='checkbox') el.checked=!!data.parameters[m[id]]; else el.value=data.parameters[m[id]];
+      });
+    }
     if($('ellP')) $('ellP').value='90';
     if($('useDtm')) $('useDtm').checked=true;
-    if(Array.isArray(data.gainTable)&&data.gainTable.length) gainTable=data.gainTable.map(function(r){return [+r[0],+r[1]]});
+    var g=data.gainTable;
+    if((!g||!g.length)&&Array.isArray(data.antennaGain)) g=data.antennaGain.map(function(r){return [r.freqMHz,r.gainDbi]});
+    if(Array.isArray(g)&&g.length) gainTable=g.map(function(r){return [+r[0],+r[1]]});
     renderGainTable();
     if(Array.isArray(data.path)&&data.path.length) data.path.forEach(function(p){addPathPoint(+p.lat,+p.lng,true)});
     if(data.aoi) setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]),true);
     if(data.center) map.setView(data.center,data.zoom||map.getZoom());
     persistAll(); updateRun(); syncSingleUi(); highlightWp();
     setBanner('<b>Configuration loaded.</b> Draw or Run Analysis.');
-    const res=$('result'); if(res) res.textContent='Configuration loaded from file.';
+    var res=$('result'); if(res) res.textContent='Configuration loaded from file.';
   }
   if($('saveCfgBtn')) $('saveCfgBtn').onclick=function(){
-    const blob=new Blob([JSON.stringify(collectConfig(),null,2)],{type:'application/json'});
-    const a=document.createElement('a');
+    var blob=new Blob([JSON.stringify(collectConfig(),null,2)],{type:'application/json'});
+    var a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download='flight-planner-config.json';
     document.body.appendChild(a); a.click(); a.remove();
@@ -200,10 +214,8 @@
   };
   if($('loadCfgBtn')) $('loadCfgBtn').onclick=function(){if($('loadCfgFile')) $('loadCfgFile').click()};
   if($('loadCfgFile')) $('loadCfgFile').addEventListener('change',function(ev){
-    const f=ev.target.files&&ev.target.files[0];
-    ev.target.value='';
-    if(!f) return;
-    const reader=new FileReader();
+    var f=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!f) return;
+    var reader=new FileReader();
     reader.onload=function(){
       try{ applyConfig(JSON.parse(String(reader.result||'{}'))); }
       catch(err){ alert('Could not load configuration: '+(err&&err.message?err.message:err)); }
