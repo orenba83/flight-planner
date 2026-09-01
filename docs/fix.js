@@ -147,4 +147,67 @@
   }
   syncSingleUi();
   if($('minSnr')) $('minSnr').addEventListener('change',function(){if(!hasAnalysis)return;const req=minSnrReq();snrScale={cmin:req-10,cmax:req+10};updateKpisFromCells();paintHeat(heatKind)});
+
+  function collectConfig(){
+    readGainTable();
+    const fields={};
+    FIELD_IDS.forEach(function(id){const el=$(id); if(!el) return; fields[id]=el.type==='checkbox'?el.checked:el.value});
+    fields.ellP='90'; fields.useDtm=true;
+    return {
+      app:'flight-planner', v:1, savedAt:new Date().toISOString(),
+      fields:fields,
+      gainTable:gainTable.map(function(r){return [+r[0],+r[1]]}),
+      path:path.map(function(p){return {lat:p.lat,lng:p.lng}}),
+      aoi:aoi?[[aoi.getSouth(),aoi.getWest()],[aoi.getNorth(),aoi.getEast()]]:null,
+      center:map.getCenter(), zoom:map.getZoom()
+    };
+  }
+  function resetDrawing(){
+    path=[];markers.forEach(function(m){try{map.removeLayer(m)}catch(e){}});markers=[];
+    pathLayer.clearLayers();aoiLayer.clearLayers();heatLayer.clearLayers();
+    aoi=null;hasAnalysis=false;lastCells=[];
+    if(wpRing){try{map.removeLayer(wpRing)}catch(e){} wpRing=null}
+    if(wpDot){try{map.removeLayer(wpDot)}catch(e){} wpDot=null}
+    updateModeButtons();updateRun();
+  }
+  function applyConfig(data){
+    if(!data||(data.app&&data.app!=='flight-planner')) throw new Error('Not a flight-planner configuration file');
+    resetDrawing();
+    if(data.fields){
+      FIELD_IDS.forEach(function(id){
+        const el=$(id); if(!el||data.fields[id]==null) return;
+        if(el.type==='checkbox') el.checked=!!data.fields[id]; else el.value=data.fields[id];
+      });
+    }
+    if($('ellP')) $('ellP').value='90';
+    if($('useDtm')) $('useDtm').checked=true;
+    if(Array.isArray(data.gainTable)&&data.gainTable.length) gainTable=data.gainTable.map(function(r){return [+r[0],+r[1]]});
+    renderGainTable();
+    if(Array.isArray(data.path)&&data.path.length) data.path.forEach(function(p){addPathPoint(+p.lat,+p.lng,true)});
+    if(data.aoi) setAoi(L.latLngBounds(data.aoi[0],data.aoi[1]),true);
+    if(data.center) map.setView(data.center,data.zoom||map.getZoom());
+    persistAll(); updateRun(); syncSingleUi(); highlightWp();
+    setBanner('<b>Configuration loaded.</b> Draw or Run Analysis.');
+    const res=$('result'); if(res) res.textContent='Configuration loaded from file.';
+  }
+  if($('saveCfgBtn')) $('saveCfgBtn').onclick=function(){
+    const blob=new Blob([JSON.stringify(collectConfig(),null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='flight-planner-config.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href)},500);
+  };
+  if($('loadCfgBtn')) $('loadCfgBtn').onclick=function(){if($('loadCfgFile')) $('loadCfgFile').click()};
+  if($('loadCfgFile')) $('loadCfgFile').addEventListener('change',function(ev){
+    const f=ev.target.files&&ev.target.files[0];
+    ev.target.value='';
+    if(!f) return;
+    const reader=new FileReader();
+    reader.onload=function(){
+      try{ applyConfig(JSON.parse(String(reader.result||'{}'))); }
+      catch(err){ alert('Could not load configuration: '+(err&&err.message?err.message:err)); }
+    };
+    reader.readAsText(f);
+  });
 })();
