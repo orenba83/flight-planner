@@ -25,7 +25,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .modes button.layerOn{background:#0f766e;border-color:#14b8a6}
 .modes button.hidden{display:none}
 .tools-left{position:fixed;top:108px;left:10px;z-index:22;display:flex;flex-direction:column;gap:8px}
-.tool{width:46px;height:46px;border-radius:14px;border:1px solid var(--line);background:#121a2bf2;color:#fde68a;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px #0006;cursor:pointer}
+.tool{width:46px;height:46px;border-radius:14px;border:1px solid var(--line);background:#121a2bf2;color:#fde68a;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px #0006;cursor:pointer;font-weight:800}
 .tool.active{background:#b45309;border-color:#f59e0b;color:#fff}
 .tabs{display:flex;gap:6px;margin:0 0 10px}
 .tabs button{flex:1;border:1px solid var(--line);background:#182234;color:var(--muted);border-radius:10px;padding:8px}
@@ -89,25 +89,25 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <button id="mPath" class="active">1. Flight path<small>Click to add aircraft point</small></button>
 <button id="mAoi">2. Draw AOI<small>Two clicks for rectangle corners</small></button>
 <button id="mSnr" class="layerBtn hidden">SNR map<small>After analysis</small></button>
-<button id="mEll" class="layerBtn hidden">Ellipse map<small>After analysis · a90</small></button>
+<button id="mEll" class="layerBtn hidden">Ellipse map<small>After analysis</small></button>
 </div>
 <div class="legend">
-  <b id="legTitle">SNR (dB) — auto scale</b>
+  <b id="legTitle">SNR (dB)</b>
   <div class="bar"></div>
   <div style="display:flex;justify-content:space-between"><span id="legMin">-</span><span id="legMid">-</span><span id="legMax">-</span></div>
   <div style="margin-top:4px;color:#9ca3af" id="legHint">Red = weak · Green = strong</div>
   <div class="scale-row" id="scaleControls" style="display:none">
     <input id="scaleMin" type="number" step="any" title="Min">
-    <span style="color:var(--muted)">–</span>
+    <span style="color:var(--muted)">-</span>
     <input id="scaleMax" type="number" step="any" title="Max">
     <button id="scaleApply" type="button">Apply</button>
   </div>
 </div>
 <button class="run" id="runBtn">Run Analysis</button>
 <div class="progress-wrap" id="progWrap">
-<div class="progress-top"><span id="progLabel">Running analysis…</span><b id="progPct">0%</b></div>
+<div class="progress-top"><span id="progLabel">Running analysis...</span><b id="progPct">0%</b></div>
 <div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
-<div class="progress-eta" id="progEta">Estimating time…</div>
+<div class="progress-eta" id="progEta">Estimating time...</div>
 </div>
 <aside class="sheet" id="sheet">
 <div class="handle"></div>
@@ -128,11 +128,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="field"><label>NF (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
 <div class="field"><label>BW (kHz)</label><input id="bw" type="number" value="25"></div>
 <div class="field"><label>Min SNR req (dB)</label><input id="minSnr" type="number" value="10" step="0.5"></div>
-<div class="field"><label>Grid (N×N = LOS samples)</label><input id="gridn" type="number" value="24" min="10" max="40"></div>
+<div class="field"><label>Grid (N x N = LOS samples)</label><input id="gridn" type="number" value="24" min="10" max="40"></div>
 <div class="field"><label>Frequency view</label>
-<select id="freqView">
-<option value="all">All frequencies (aggregate)</option>
-</select></div>
+<select id="freqView"><option value="all">All frequencies (aggregate)</option></select></div>
 <div class="field"><label>Calculation type</label>
 <select id="viewMode">
 <option value="mean">Mean over all aircraft points</option>
@@ -140,7 +138,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <option value="single">Single aircraft point</option>
 </select></div>
 <div class="field"><label>Point index</label><input id="wpIndex" type="number" value="1" min="1"></div>
-<div class="field"><label>DF RMS (°)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
+<div class="field"><label>DF RMS (deg)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
 <div class="field"><label>Ellipse %</label><input id="ellP" type="number" value="90" min="50" max="99"></div>
 <label class="check"><input id="useDtm" type="checkbox" checked> Diffraction loss from DTM (knife-edge)</label>
 </div>
@@ -151,10 +149,11 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <button id="addGain" type="button" style="border:0;border-radius:10px;padding:8px 10px;background:#1e3a5f;color:#fff;margin-top:8px">+ Add frequency</button>
 </div>
 <div class="row"><button id="clearBtn">Clear drawing</button></div>
-<p class="hint">Settings restore after refresh. SNR bar = Min SNR ± 10 dB. LOS samples = Grid. Ellipse only where SNR ≥ Min SNR req.</p>
+<p class="hint">Settings restore after refresh. SNR bar = Min SNR +/- 10 dB. LOS samples = Grid. Ellipse only where SNR >= Min SNR req.</p>
 <div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="flight-planner.js"></script>
+<script src="fix.js"></script>
 </body>
 </html>
