@@ -45,7 +45,6 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
 .field input,.field select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px}
-.check{grid-column:1/-1;display:flex;gap:8px;align-items:center;font-size:13px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .row button{border:0;border-radius:12px;padding:10px;background:#243044;color:#fff}
 .result{margin-top:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:13px;line-height:1.5;max-height:26vh;overflow:auto}
@@ -72,13 +71,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <body>
 <div id="map"></div>
 <div class="topbar"><div class="kpis">
-<div class="kpi"><span>Path points</span><b id="kPts">0</b></div>
 <div class="kpi"><span>Length</span><b id="kLen">-</b></div>
 <div class="kpi"><span>Avg SNR</span><b id="kAvg">-</b></div>
-<div class="kpi"><span>Max SNR</span><b id="kMax">-</b></div>
-<div class="kpi"><span>Diffraction</span><b id="kDiff">-</b></div>
-<div class="kpi"><span>Ellipse a90</span><b id="kEll">-</b></div>
-<div class="kpi"><span>Aperture</span><b id="kPhi">-</b></div>
+<div class="kpi"><span>Avg ellipse</span><b id="kEll">-</b></div>
 </div></div>
 <div class="banner" id="banner"><b>Step 1:</b> Draw flight path. Then AOI, then Run Analysis.</div>
 <div class="tools-left">
@@ -137,10 +132,14 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <option value="max">Max over all aircraft points</option>
 <option value="single">Single aircraft point</option>
 </select></div>
-<div class="field"><label>Point index</label><input id="wpIndex" type="number" value="1" min="1"></div>
+<div class="field" id="wpIndexField" style="display:none"><label>Point index</label><input id="wpIndex" type="number" value="1" min="1"></div>
 <div class="field"><label>DF RMS (deg)</label><input id="dfSig" type="number" value="2" step="0.1" min="0.1"></div>
-<div class="field"><label>Ellipse %</label><input id="ellP" type="number" value="90" min="50" max="99"></div>
-<label class="check"><input id="useDtm" type="checkbox" checked> Diffraction loss from DTM (knife-edge)</label>
+<input id="ellP" type="hidden" value="90">
+<input id="useDtm" type="checkbox" checked style="display:none">
+<div id="kPts" style="display:none"></div>
+<div id="kMax" style="display:none"></div>
+<div id="kDiff" style="display:none"></div>
+<div id="kPhi" style="display:none"></div>
 </div>
 </div>
 <div id="tab-ant" class="tabpane">
@@ -149,7 +148,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <button id="addGain" type="button" style="border:0;border-radius:10px;padding:8px 10px;background:#1e3a5f;color:#fff;margin-top:8px">+ Add frequency</button>
 </div>
 <div class="row"><button id="clearBtn">Clear drawing</button></div>
-<p class="hint">Settings restore after refresh. SNR bar = Min SNR +/- 10 dB. LOS samples = Grid. Ellipse only where SNR >= Min SNR req.</p>
+<p class="hint">SNR bar = Min SNR +/- 10 dB. Ellipse 90% is fixed. DTM diffraction is always on.</p>
 <div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
