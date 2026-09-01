@@ -13,56 +13,46 @@
     };
   });
   if($('mRuler')) $('mRuler').onclick=()=>setMode(mode==='ruler'?(hasAnalysis?'idle':'path'):'ruler');
-
   const _params=params;
-  params=function(){const p=_params();p.lpol=0;p.lsys=0;p.losN=p.n;p.ellP=90;return p};
-
-  const K90=Math.sqrt(-2*Math.log(0.1));
-  function dfSamplesAlongPath(nWant){
-    if(!path.length) return [];
-    return resample(path, Math.max(24, nWant|0, path.length*3));
-  }
-  function dfEllipse90(g, acPts, acAlt, gElev, sigmaDeg){
-    const sigma=Math.max(0.05, +sigmaDeg||2)*Math.PI/180;
-    let Ixx=0,Iyy=0,Ixy=0,used=0,phi=0,R1=0,R2=0;
-    const vs=[];
-    for(const ac of acPts){
-      const v=vecFromGround(g,ac,acAlt,gElev);
-      vs.push(v);
-      const E=v.x,N=v.y,Rh=Math.hypot(E,N);
-      if(Rh<150) continue;
-      const r2=Rh*Rh;
-      const je=N/r2, jn=-E/r2;
-      const w=1/(sigma*sigma);
-      Ixx+=w*je*je; Iyy+=w*jn*jn; Ixy+=w*je*jn; used++;
-    }
+  params=function(){const p=_params();p.lpol=0;p.lsys=0;p.losN=p.n;p.ellP=90;p.useDtm=true;return p};
+  function dfFromSamples(g,samples,acAlt,gElev,sigmaRad,pPct){
+    if(!samples||!samples.length) return {phi:0,R1:0,R2:0,_a90:Infinity};
+    const vs=samples.map(s=>vecFromGround(g,s,acAlt,gElev));
+    let phi=0,R1=0,R2=0;
     if(vs.length===1){R1=R2=vlen(vs[0])}
-    else if(vs.length>1){
+    else{
       let best=-1,ii=0,jj=1;
       for(let i=0;i<vs.length;i++) for(let j=i+1;j<vs.length;j++){
         const a=angBetween(vs[i],vs[j]); if(a>best){best=a;ii=i;jj=j}
       }
       phi=Math.max(0,best); R1=vlen(vs[ii]); R2=vlen(vs[jj]);
     }
+    let Ixx=0,Iyy=0,Ixy=0,n=0;
+    const sig=Math.max(sigmaRad,0.05*Math.PI/180);
+    for(const v of vs){
+      const Rh=Math.sqrt(v.x*v.x+v.y*v.y);
+      if(Rh<80) continue;
+      const nx=-v.y/Rh, ny=v.x/Rh;
+      const w=1/(sig*Rh)*(1/(sig*Rh));
+      Ixx+=w*nx*nx; Iyy+=w*ny*ny; Ixy+=w*nx*ny; n++;
+    }
     let a90=Infinity;
-    if(used>=2){
+    if(n>=2){
       const det=Ixx*Iyy-Ixy*Ixy;
-      if(det>1e-24){
+      if(det>1e-18){
         const Pxx=Iyy/det, Pyy=Ixx/det, Pxy=-Ixy/det;
         const tr=Pxx+Pyy;
         const disc=Math.sqrt(Math.max(0,tr*tr-4*(Pxx*Pyy-Pxy*Pxy)));
-        a90=K90*Math.sqrt(Math.max(0.5*(tr+disc),0));
+        a90=Math.sqrt(Math.max(0.5*(tr+disc),0))*chiScale(pPct);
       }
     }
-    return {phi,R1,R2,_a90:a90,used};
+    return {phi,R1,R2,_a90:a90};
   }
   bestAperture=function(g,samples,acAlt,gElev){
     const p=params();
-    const pts=dfSamplesAlongPath(p.samples);
-    return dfEllipse90(g, pts.length?pts:samples, acAlt, gElev, p.dfSig);
+    return dfFromSamples(g,samples,acAlt,gElev,p.dfSig*Math.PI/180,90);
   };
-  ellipseA90=function(ap){return (ap&&Number.isFinite(ap._a90))?ap._a90:Infinity};
-
+  ellipseA90=function(ap){return (ap&&isFinite(ap._a90))?ap._a90:Infinity};
   function fillAvgDist(){
     if(!lastCells.length||!path.length) return;
     const samples=resample(path,Math.max(2,+$('psamp').value|0));
@@ -90,7 +80,6 @@
     });
     if(kind!=='ell') $('legTitle').textContent='SNR (dB) — min req ±10';
   };
-
   function stripPathNumbers(){markers.forEach(m=>{try{m.unbindTooltip()}catch(e){}})}
   function pathSampleCount(){return Math.max(2,+$('psamp').value|0)}
   function clampPointIndex(){
@@ -104,10 +93,23 @@
     return i;
   }
   let wpRing=null, wpDot=null;
+  function syncSingleUi(){
+    const single=$('viewMode')&&$('viewMode').value==='single';
+    const box=$('wpIndexField');
+    if(box) box.style.display=single?'block':'none';
+    if(!single){
+      if(wpRing){try{map.removeLayer(wpRing)}catch(e){} wpRing=null}
+      if(wpDot){try{map.removeLayer(wpDot)}catch(e){} wpDot=null}
+    }
+    const dtm=$('useDtm'); if(dtm) dtm.checked=true;
+    const ell=$('ellP'); if(ell) ell.value=90;
+  }
   function highlightWp(){
+    syncSingleUi();
     if(wpRing){try{map.removeLayer(wpRing)}catch(e){} wpRing=null}
     if(wpDot){try{map.removeLayer(wpDot)}catch(e){} wpDot=null}
     if(!path.length) return;
+    if(!$('viewMode')||$('viewMode').value!=='single') return;
     const idx=clampPointIndex();
     const samples=resample(path, pathSampleCount());
     const pt=samples[Math.min(samples.length-1, idx-1)];
@@ -121,7 +123,6 @@
   stripPathNumbers();
   clampPointIndex();
   highlightWp();
-
   let rerunT=0;
   function autoSingleHeat(){
     $('viewMode').value='single';
@@ -144,5 +145,6 @@
       if($('viewMode').value==='single'&&path.length&&aoi) autoSingleHeat();
     });
   }
+  syncSingleUi();
   if($('minSnr')) $('minSnr').addEventListener('change',function(){if(!hasAnalysis)return;const req=minSnrReq();snrScale={cmin:req-10,cmax:req+10};updateKpisFromCells();paintHeat(heatKind)});
 })();
