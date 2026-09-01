@@ -18,13 +18,10 @@
   params=function(){const p=_params();p.lpol=0;p.lsys=0;p.losN=p.n;p.ellP=90;return p};
 
   const K90=Math.sqrt(-2*Math.log(0.1));
-
   function dfSamplesAlongPath(nWant){
     if(!path.length) return [];
-    const n=Math.max(24, nWant|0, path.length*3);
-    return resample(path, n);
+    return resample(path, Math.max(24, nWant|0, path.length*3));
   }
-
   function dfEllipse90(g, acPts, acAlt, gElev, sigmaDeg){
     const sigma=Math.max(0.05, +sigmaDeg||2)*Math.PI/180;
     let Ixx=0,Iyy=0,Ixy=0,used=0,phi=0,R1=0,R2=0;
@@ -37,8 +34,7 @@
       const r2=Rh*Rh;
       const je=N/r2, jn=-E/r2;
       const w=1/(sigma*sigma);
-      Ixx+=w*je*je; Iyy+=w*jn*jn; Ixy+=w*je*jn;
-      used++;
+      Ixx+=w*je*je; Iyy+=w*jn*jn; Ixy+=w*je*jn; used++;
     }
     if(vs.length===1){R1=R2=vlen(vs[0])}
     else if(vs.length>1){
@@ -60,7 +56,6 @@
     }
     return {phi,R1,R2,_a90:a90,used};
   }
-
   bestAperture=function(g,samples,acAlt,gElev){
     const p=params();
     const pts=dfSamplesAlongPath(p.samples);
@@ -89,25 +84,43 @@
       if(!c) return;
       const v=cellSnr(c);
       const tip=kind==='ell'
-        ?(snrOk(v)?('a90 '+fmtKm(c.a90)+' \u00b7 SNR '+v.toFixed(1)+' dB \u00b7 avg range '+fmtKm(c.avgDist||0)):('SNR '+v.toFixed(1)+' dB < min \u00b7 avg range '+fmtKm(c.avgDist||0)))
-        :(v.toFixed(1)+' dB \u00b7 '+freqLabel()+' \u00b7 a90 '+ellText(c)+' \u00b7 avg range '+fmtKm(c.avgDist||0));
+        ?(snrOk(v)?('a90 '+fmtKm(c.a90)+' · SNR '+v.toFixed(1)+' dB · avg range '+fmtKm(c.avgDist||0)):('SNR '+v.toFixed(1)+' dB < min · avg range '+fmtKm(c.avgDist||0)))
+        :(v.toFixed(1)+' dB · '+freqLabel()+' · a90 '+ellText(c)+' · avg range '+fmtKm(c.avgDist||0));
       layer.bindTooltip(tip,{sticky:true});
     });
-    if(kind!=='ell') $('legTitle').textContent='SNR (dB) \u2014 min req \u00b110';
+    if(kind!=='ell') $('legTitle').textContent='SNR (dB) — min req ±10';
   };
 
   function stripPathNumbers(){markers.forEach(m=>{try{m.unbindTooltip()}catch(e){}})}
-  let wpRing=null;
+  function pathSampleCount(){return Math.max(2,+$('psamp').value|0)}
+  function clampPointIndex(){
+    const el=$('wpIndex'); if(!el) return 1;
+    const n=pathSampleCount();
+    el.min=1; el.max=n;
+    let i=+$('wpIndex').value|0;
+    if(!Number.isFinite(i)||i<1) i=1;
+    if(i>n) i=n;
+    if(String(el.value)!==String(i)) el.value=i;
+    return i;
+  }
+  let wpRing=null, wpDot=null;
   function highlightWp(){
-    if(wpRing){try{pathLayer.removeLayer(wpRing)}catch(e){} wpRing=null}
-    const i=Math.max(1,+$('wpIndex').value|0)-1;
-    if(!path[i]) return;
-    if($('viewMode').value!=='single') return;
-    wpRing=L.circleMarker([path[i].lat,path[i].lng],{radius:16,color:'#facc15',weight:4,fillColor:'#facc15',fillOpacity:.25}).addTo(pathLayer);
+    if(wpRing){try{map.removeLayer(wpRing)}catch(e){} wpRing=null}
+    if(wpDot){try{map.removeLayer(wpDot)}catch(e){} wpDot=null}
+    if(!path.length) return;
+    const idx=clampPointIndex();
+    const samples=resample(path, pathSampleCount());
+    const pt=samples[Math.min(samples.length-1, idx-1)];
+    if(!pt) return;
+    wpRing=L.circleMarker([pt.lat,pt.lng],{radius:18,color:'#facc15',weight:4,fillColor:'#facc15',fillOpacity:.2}).addTo(map);
+    wpDot=L.circleMarker([pt.lat,pt.lng],{radius:7,color:'#111827',weight:2,fillColor:'#f59e0b',fillOpacity:1}).addTo(map);
+    wpDot.bindTooltip(idx+' / '+samples.length,{permanent:true,direction:'top',offset:[0,-10]});
   }
   const _redraw=redrawPath;
   redrawPath=function(){_redraw();stripPathNumbers();highlightWp()};
   stripPathNumbers();
+  clampPointIndex();
+  highlightWp();
 
   let rerunT=0;
   function autoSingleHeat(){
@@ -120,6 +133,10 @@
   if($('wpIndex')){
     $('wpIndex').addEventListener('change',autoSingleHeat);
     $('wpIndex').addEventListener('input',highlightWp);
+  }
+  if($('psamp')){
+    $('psamp').addEventListener('change',function(){clampPointIndex();highlightWp()});
+    $('psamp').addEventListener('input',function(){clampPointIndex();highlightWp()});
   }
   if($('viewMode')){
     $('viewMode').addEventListener('change',function(){
