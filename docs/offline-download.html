@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>הורדת חבילת Offline</title>
+<style>
+:root{--bg:#0b1220;--card:#121a2b;--line:#2a364c;--txt:#e8eef7;--mut:#93a0b5;--acc:#2563eb;--ok:#22c55e;--bad:#ef4444}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,Arial;padding:20px;line-height:1.45}
+h1{font-size:22px;margin:0 0 8px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:12px 0}
+.mut{color:var(--mut);font-size:13px}button{border:0;border-radius:12px;padding:12px 16px;background:var(--acc);color:#fff;font-weight:800;cursor:pointer}
+button:disabled{background:#334155}#log{direction:ltr;text-align:left;height:280px;overflow:auto;background:#0d1524;border:1px solid var(--line);border-radius:10px;padding:10px;font:12px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.bar{height:12px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:10px}.fill{height:100%;width:0;background:linear-gradient(90deg,#2563eb,#38bdf8)}
+</style></head><body>
+<h1>הורדה לתיקייה — מחשב בלי אינטרנט</h1>
+<p class="mut">רק במחשב עם רשת, Chrome או Edge. בוחרים תיקייה ריקה, מעתיקים אותה לדיסק. במחשב הסגור: Python + run_offline.bat</p>
+<div class="card"><button id="go">בחר תיקייה והורד הכל</button>
+<div class="bar"><div class="fill" id="fill"></div></div><p class="mut" id="stat">ממתין</p></div>
+<div class="card"><div id="log"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+const LAT0=29.4,LAT1=34.7,LON0=34.2,LON1=36.7,ZMIN=6,ZMAX=11;
+const logEl=document.getElementById('log');
+function log(msg,cls){const s=document.createElement('div');if(cls)s.className=cls;s.textContent=msg;logEl.appendChild(s);logEl.scrollTop=logEl.scrollHeight}
+function setStat(t,p){document.getElementById('stat').textContent=t;if(p!=null)document.getElementById('fill').style.width=Math.max(0,Math.min(100,p))+'%'}
+async function writeFile(dir,path,data){const parts=path.split('/');let cur=dir;for(let i=0;i<parts.length-1;i++)cur=await cur.getDirectoryHandle(parts[i],{create:true});const fh=await cur.getFileHandle(parts[parts.length-1],{create:true});const w=await fh.createWritable();await w.write(data);await w.close()}
+async function fetchBuf(url){const r=await fetch(url,{mode:'cors'});if(!r.ok)throw new Error(url+' '+r.status);return await r.arrayBuffer()}
+async function fetchText(url){const r=await fetch(url,{mode:'cors'});if(!r.ok)throw new Error(url+' '+r.status);return await r.text()}
+function deg2num(lat,lon,z){lat=Math.max(-85.05,Math.min(85.05,lat));const n=2**z;const x=Math.floor((lon+180)/360*n);const latR=lat*Math.PI/180;const y=Math.floor((1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n);return [x,y]}
+function tileList(){const out=[];for(let z=ZMIN;z<=ZMAX;z++){let [x0,y1]=deg2num(LAT0,LON0,z);let [x1,y0]=deg2num(LAT1,LON1,z);if(x0>x1){const t=x0;x0=x1;x1=t}if(y0>y1){const t=y0;y0=y1;y1=t}for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++)out.push({z,x,y})}return out}
+function srtmNames(){const a=[];for(let lat=Math.floor(LAT0);lat<=Math.floor(LAT1);lat++)for(let lon=Math.floor(LON0);lon<=Math.floor(LON1);lon++)a.push('N'+String(lat).padStart(2,'0')+'E'+String(lon).padStart(3,'0'));return a}
+const OFFLINE_JS=` + '`'+`(function(){
+  map.eachLayer(function(layer){ if(layer instanceof L.TileLayer) map.removeLayer(layer); });
+  L.tileLayer('tiles/{z}/{x}/{y}.png',{maxZoom:14,minZoom:5,attribution:'Local tiles'}).addTo(map);
+  const hgtCache={};
+  function pad(n,w){return String(Math.abs(n)).padStart(w,'0')}
+  function tileName(lat,lng){const n=Math.floor(lat), e=Math.floor(lng);return (lat>=0?'N':'S')+pad(n,2)+(lng>=0?'E':'W')+pad(e,3)}
+  async function loadHgt(name){if(hgtCache[name]!==undefined)return hgtCache[name];try{const res=await fetch('srtm/'+name+'.hgt');if(!res.ok){hgtCache[name]=null;return null;}const buf=await res.arrayBuffer();hgtCache[name]={view:new DataView(buf),size:Math.round(Math.sqrt(buf.byteLength/2))};return hgtCache[name];}catch(e){hgtCache[name]=null;return null;}}
+  function sampleHgt(tile,lat,lng){if(!tile)return 0;const n=Math.floor(lat),e=Math.floor(lng);const size=tile.size;const row=Math.max(0,Math.min(size-1,Math.round((1-(lat-n))*(size-1))));const col=Math.max(0,Math.min(size-1,Math.round((lng-e)*(size-1))));const v=tile.view.getInt16((row*size+col)*2,false);return (v<=-32768||v>9000)?0:v}
+  fetchElevations=async function(points){const need=points.filter(p=>!(p.lat.toFixed(4)+','+p.lng.toFixed(4) in elevCache));const names={};need.forEach(p=>names[tileName(p.lat,p.lng)]=1);for(const name of Object.keys(names))await loadHgt(name);let hits=0;for(const p of need){const tile=hgtCache[tileName(p.lat,p.lng)];elevCache[p.lat.toFixed(4)+','+p.lng.toFixed(4)]=sampleHgt(tile,p.lat,p.lng);if(tile)hits++}if(!hits)throw new Error('No local SRTM in /srtm');return 'Local SRTM'};
+})();`+'`' + `;
+const BAT='@echo off\r\ncd /d "%~dp0"\r\necho Open http://127.0.0.1:8765\r\npython -m http.server 8765\r\nif errorlevel 1 py -m http.server 8765\r\npause\r\n';
+const README='Install Python 3, run run_offline.bat, open http://127.0.0.1:8765\n';
+document.getElementById('go').onclick=async()=>{
+  if(!window.showDirectoryPicker){alert('Chrome / Edge only');return;}
+  let dir;try{dir=await showDirectoryPicker({mode:'readwrite'});}catch(e){return;}
+  const btn=document.getElementById('go');btn.disabled=true;let done=0,fail=0;
+  try{
+    await writeFile(dir,'run_offline.bat',BAT);
+    await writeFile(dir,'README_OFFLINE.txt',README);
+    await writeFile(dir,'offline.js',OFFLINE_JS);
+    const base=location.origin+location.pathname.replace(/[^/]+$/,'');
+    log('Downloading app from '+base);
+    let index=await fetchText(base+'index.html');
+    index=index.replace('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','vendor/leaflet/leaflet.css');
+    index=index.replace('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js','vendor/leaflet/leaflet.js');
+    if(index.indexOf('offline.js')<0) index=index.replace('<script src="fix.js"></script>','<script src="fix.js"></script>\n<script src="offline.js"></script>');
+    await writeFile(dir,'index.html',index);
+    await writeFile(dir,'flight-planner.js',await fetchText(base+'flight-planner.js'));
+    await writeFile(dir,'fix.js',await fetchText(base+'fix.js'));
+    log('App files OK','ok');
+    const Lbase='https://unpkg.com/leaflet@1.9.4/dist/';
+    for(const f of ['leaflet.js','leaflet.css','images/marker-icon.png','images/marker-icon-2x.png','images/marker-shadow.png']){
+      await writeFile(dir,'vendor/leaflet/'+f,await fetchBuf(Lbase+f));log('leaflet '+f,'ok');
+    }
+    if(typeof JSZip==='undefined') throw new Error('JSZip missing');
+    const names=srtmNames();
+    for(let i=0;i<names.length;i++){
+      const name=names[i];setStat('DTM '+name,8+20*(i/names.length));let ok=false;
+      for(const folder of ['Africa','Eurasia']){
+        try{
+          const buf=await fetchBuf('https://terrain.ardupilot.org/SRTM3/'+folder+'/'+name+'.hgt.zip');
+          const zip=await JSZip.loadAsync(buf);
+          const entry=Object.keys(zip.files).find(n=>n.toLowerCase().endsWith('.hgt'));
+          if(!entry) continue;
+          await writeFile(dir,'srtm/'+name+'.hgt',await zip.files[entry].async('arraybuffer'));
+          log('SRTM '+name,'ok');ok=true;done++;break;
+        }catch(e){}
+      }
+      if(!ok){fail++;log('SRTM fail '+name,'bad');}
+    }
+    const tiles=tileList();log('Map tiles '+tiles.length);
+    const sources=[t=>'https://a.basemaps.cartocdn.com/rastertiles/voyager/'+t.z+'/'+t.x+'/'+t.y+'.png',t=>'https://tile.openstreetmap.org/'+t.z+'/'+t.x+'/'+t.y+'.png'];
+    for(let i=0;i<tiles.length;i++){
+      const t=tiles[i];setStat('Tiles '+(i+1)+'/'+tiles.length,30+70*(i/tiles.length));let ok=false;
+      for(const src of sources){try{await writeFile(dir,'tiles/'+t.z+'/'+t.x+'/'+t.y+'.png',await fetchBuf(src(t)));ok=true;done++;break;}catch(e){}}
+      if(!ok){fail++;if(fail<8)log('tile fail '+t.z+'/'+t.x+'/'+t.y,'bad');}
+      if(i%20===0) await new Promise(r=>setTimeout(r,0));
+    }
+    setStat('Done',100);log('ok='+done+' fail='+fail,'ok');
+    log('Offline PC: install Python, run_offline.bat, http://127.0.0.1:8765');
+  }catch(err){log(String(err&&err.message||err),'bad');setStat('Error');}
+  btn.disabled=false;
+};
+</script></body></html>
