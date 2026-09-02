@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Planner — Offline Pack</title>
+<style>
+:root{--bg:#0b1220;--card:#121a2b;--line:#2a364c;--txt:#e8eef7;--mut:#93a0b5;--acc:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,Arial;line-height:1.5;padding:20px}
+h1{font-size:22px;margin:0 0 8px}h2{font-size:17px;margin:22px 0 8px;color:#93c5fd}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+.mut{color:var(--mut);font-size:13px}code,pre{background:#0d1524;border:1px solid var(--line);border-radius:8px;font-size:12px}
+pre{padding:10px;overflow:auto;direction:ltr;text-align:left}code{padding:1px 5px}a{color:#93c5fd}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.grid a{display:block;background:#182234;border:1px solid var(--line);border-radius:10px;padding:8px;text-decoration:none;font-size:12px}
+</style>
+</head>
+<body>
+<h1>חבילת Stand-alone ל-Flight Planner</h1>
+<p class="mut">מחשב א' עם אינטרנט מוריד לדיסק נייד. מחשב ב' בלי רשת מתקין מהדיסק ומריץ.</p>
+<div class="card">
+<h2>מה שחייב להיות בתיקייה</h2>
+<pre>flight-planner-offline/
+  main.py
+  web_app.py
+  requirements.txt
+  python-installer.exe
+  vc_redist.x64.exe
+  wheels/
+  srtm/
+  map_tiles/
+  flight-planner-config.json</pre>
+<p class="mut">אין צורך להעתיק תיקיות numpy מוכנות. pip בונה אותן מה-wheels על מחשב ב'.</p>
+</div>
+<div class="card">
+<h2>1. Python</h2>
+<p>הורד מתקין Windows 64-bit (3.11/3.12) מ-
+<a href="https://www.python.org/downloads/windows/" target="_blank">python.org/downloads/windows</a>
+ושמור כ-python-installer.exe. גם
+<a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank">vc_redist.x64.exe</a>.</p>
+</div>
+<div class="card">
+<h2>2. pip wheels — רק במחשב עם רשת</h2>
+<pre>mkdir flight-planner-offline\wheels flight-planner-offline\srtm
+pip download -r requirements.txt -d flight-planner-offline\wheels</pre>
+<p class="mut">זה מוריד את streamlit, numpy, pillow, folium, SRTM.py וכל התלויות. HTML לא יכול להחליף את זה מהדפדפן.</p>
+</div>
+<div class="card">
+<h2>3. DTM לישראל + לבנון</h2>
+<p>לחץ ושמור ל-srtm/. אם Africa מחזיר 404 — נסה Eurasia.</p>
+<div class="grid" id="dtm"></div>
+</div>
+<div class="card">
+<h2>4. מפה</h2>
+<p>Folium מושך OSM מהרשת. בלי שינוי קוד האנליזה תעבוד עם DTM מקומי; המפה עלולה להיות אפורה. אריחי מפה: Mobile Atlas Creator / SAS.Planet, זום 6-12, ל-map_tiles.</p>
+</div>
+<div class="card">
+<h2>5. התקנה במחשב הסגור</h2>
+<pre>python-installer.exe     (Add python.exe to PATH)
+cd flight-planner-offline
+pip install --no-index --find-links=wheels -r requirements.txt
+streamlit run web_app.py</pre>
+<p>נפתח http://localhost:8501 — זה לא אינטרנט. אם SRTM מבקש הורדה: העתק את srtm גם ל-%USERPROFILE%\.cache\srtm</p>
+</div>
+<script>
+var tiles=["N29E034","N29E035","N29E036","N30E034","N30E035","N30E036","N31E034","N31E035","N31E036","N32E034","N32E035","N32E036","N33E034","N33E035","N33E036","N34E034","N34E035","N34E036"];
+var box=document.getElementById("dtm");
+tiles.forEach(function(t){
+  ["Africa","Eurasia"].forEach(function(reg){
+    var a=document.createElement("a");
+    a.href="https://terrain.ardupilot.org/SRTM3/"+reg+"/"+t+".hgt.zip";
+    a.textContent=t+" ("+reg+")";
+    box.appendChild(a);
+  });
+});
+</script>
+</body>
+</html>
