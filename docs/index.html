@@ -27,9 +27,10 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 .tools-left{position:fixed;top:108px;left:10px;z-index:22;display:flex;flex-direction:column;gap:8px}
 .tool{width:46px;height:46px;border-radius:14px;border:1px solid var(--line);background:#121a2bf2;color:#fde68a;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px #0006;cursor:pointer;font-weight:800}
 .tool.active{background:#b45309;border-color:#f59e0b;color:#fff}
-.tabs{display:flex;gap:6px;margin:0 0 10px}
-.tabs button{flex:1;border:1px solid var(--line);background:#182234;color:var(--muted);border-radius:10px;padding:8px}
-.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tabs{display:flex;gap:0;margin:0 0 12px;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);border-radius:0;padding:10px 8px;font-size:13px;font-weight:600;cursor:pointer}
+.tabs button:hover{color:var(--txt)}
+.tabs button.on{background:transparent;color:#93c5fd;border-bottom-color:#3b82f6;border-color:transparent}
 .tabpane{display:none}.tabpane.on{display:block}
 .run{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--safe));z-index:40;border:0;border-radius:14px;padding:14px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;box-shadow:0 8px 24px #0008}
 .run:disabled{background:#334155;color:#94a3b8}
@@ -114,6 +115,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="sheet-head"><h2 style="margin:0;font-size:15px">Parameters & Results</h2>
 <button id="toggleSheet" class="peek" style="border:0;background:#243044;color:#fff;border-radius:10px;padding:7px 10px">Open / Close</button></div>
 
+<div class="mode-label" style="font-size:11px;color:var(--muted);margin-bottom:4px">Planning mode</div>
 <div class="mode-switch">
 <button type="button" id="modeForward" class="on">Forward (path → SNR)</button>
 <button type="button" id="modeOptimal">Optimal Leg</button>
