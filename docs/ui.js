@@ -151,7 +151,14 @@
       L.circleMarker([p.lat, p.lng], { radius: 7, color: '#16a34a', weight: 2, fillColor: '#86efac', fillOpacity: 1 })
         .bindTooltip(i === 0 ? 'Start' : 'End', { permanent: false }).addTo(optLayer);
     });
-    if (aoi) map.fitBounds(aoi.pad(0.35));
+    // Zoom out so both AOI and the generated leg are fully visible
+    try {
+      const b = L.latLngBounds(result.path.map((p) => [p.lat, p.lng]));
+      if (aoi) b.extend(aoi.getSouthWest()).extend(aoi.getNorthEast());
+      map.fitBounds(b.pad(0.25));
+    } catch (e) {
+      if (aoi) map.fitBounds(aoi.pad(0.35));
+    }
     if (typeof persistSoon === 'function') persistSoon();
     if (typeof updateRun === 'function') updateRun();
   }
@@ -195,8 +202,15 @@
       applyOptimalPath(result);
       const v = OptimalLegGenerator.validateCoverage(result.path, aoi, p, interpGain);
       const margins = result.margins || {};
+      const horizonKm = margins.horizonM ? (margins.horizonM / 1000) : null;
+      const fsKm = margins.RmaxFsM ? (margins.RmaxFsM / 1000) : null;
       const freqLines = (margins.perFreq || [])
-        .map((pf) => pf.freq + ' MHz → Rmax ' + (pf.Rmax / 1000).toFixed(1) + ' km')
+        .map((pf) => {
+          const fs = pf.Rmax / 1000;
+          const capped = horizonKm != null ? Math.min(fs, horizonKm) : fs;
+          return pf.freq + ' MHz → usable ' + capped.toFixed(1) + ' km'
+            + (fs > capped + 0.5 ? ' (FSPL ' + fs.toFixed(0) + ' km, limited by horizon)' : '');
+        })
         .join('<br>');
 
       $('sheet').classList.add('open');
@@ -205,10 +219,13 @@
         '<br><br><b>Coverage:</b> ' + (v.ok ? 'PASS' : 'FAIL') +
         ' · min SNR ' + (p.minSnr || 10) + ' dB<br>' +
         '<b>Standoff:</b> ' + (result.standoffM / 1000).toFixed(2) + ' km<br>' +
-        '<b>Rmax (slant):</b> ' + (result.RmaxM / 1000).toFixed(2) +
-        ' km · <b>Rh (ground):</b> ' + (result.RhM / 1000).toFixed(2) + ' km<br>' +
+        '<b>Usable ground range Rh:</b> ' + (result.RhM / 1000).toFixed(1) + ' km' +
+        (horizonKm != null ? ' · <b>radio horizon:</b> ' + horizonKm.toFixed(0) + ' km' : '') + '<br>' +
+        (fsKm != null && horizonKm != null && fsKm > horizonKm + 1
+            ? '<span style="color:#fbbf24">FSPL alone would allow ~' + fsKm.toFixed(0) + ' km — capped by Earth horizon</span><br>'
+            : '') +
         '<b>Heading:</b> ' + result.headingDeg + '°<br>' +
-        (freqLines ? '<br><b>Per-frequency range:</b><br>' + freqLines : '') +
+        (freqLines ? '<br><b>Per-frequency usable range:</b><br>' + freqLines : '') +
         '<br><br>Path loaded into markers. Switch to <b>Forward</b> and click <b>Run Analysis</b> for SNR heatmap.';
 
       setBanner('<b>Optimal leg drawn</b> · standoff ' + (result.standoffM / 1000).toFixed(2) +
