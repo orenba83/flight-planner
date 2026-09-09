@@ -125,7 +125,11 @@
     const runBtn = $('runBtn');
     if (next === 'optimal') {
       if (runBtn) { runBtn.textContent = 'Generate Optimal Leg'; runBtn.disabled = !aoi; }
-      setBanner('<b>Optimal mode:</b> Draw AOI, set Leg Length & Min SNR, then Generate Optimal Leg.');
+      setBanner('<b>Optimal mode:</b> Set Leg Length (default 100 km), draw AOI, then Generate Optimal Leg.');
+      const sheet = $('sheet');
+      if (sheet) sheet.classList.add('open');
+      const leg = $('legLen');
+      if (leg) { try { leg.focus(); leg.select(); } catch (e) {} }
     } else {
       if (typeof updateRun === 'function') updateRun();
       else if (runBtn) runBtn.textContent = 'Run Analysis';

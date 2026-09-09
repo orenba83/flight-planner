@@ -121,11 +121,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <button type="button" id="modeOptimal">Optimal Leg</button>
 </div>
 <div id="optControls">
-<p class="hint" style="margin-top:0">Reverse planning: AOI + min SNR → flight leg of length L at maximum standoff with 100% AOI coverage.</p>
-<div class="grid">
-<div class="field"><label>Leg Length L (km)</label><input id="legLen" type="number" value="100" min="1" max="2000" step="1"></div>
-<div class="field"><label>Uses Min SNR from Analysis tab</label><input type="text" value="see Min SNR req" disabled></div>
-</div>
+<p class="hint" style="margin-top:0">Reverse planning: set leg length and min SNR, draw AOI, then Generate. Produces a straight leg of exact length L at maximum standoff with 100% AOI coverage.</p>
+<div class="field" style="margin-bottom:8px"><label>Leg Length L (km) — required</label><input id="legLen" type="number" value="100" min="1" max="2000" step="1" style="font-size:16px;font-weight:700;padding:10px"></div>
+<p class="hint" style="margin:0">Min SNR requirement is taken from the <b>Analysis</b> tab (Min SNR req).</p>
 </div>
 
 <div class="tabs">
