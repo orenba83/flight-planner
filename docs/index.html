@@ -115,10 +115,10 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="sheet-head"><h2 style="margin:0;font-size:15px">Parameters & Results</h2>
 <button id="toggleSheet" class="peek" style="border:0;background:#243044;color:#fff;border-radius:10px;padding:7px 10px">Open / Close</button></div>
 
-<div class="mode-label" style="font-size:11px;color:var(--muted);margin-bottom:4px">Planning mode</div>
+<div class="mode-label" style="font-size:11px;color:var(--muted);margin-bottom:4px">Planning mode — click <b style="color:#5eead4">Optimal Leg</b> for Auto Leg / Leg Length / flight area</div>
 <div class="mode-switch">
 <button type="button" id="modeForward" class="on">Forward (path → SNR)</button>
-<button type="button" id="modeOptimal">Optimal Leg</button>
+<button type="button" id="modeOptimal">Optimal Leg (Auto)</button>
 </div>
 <div id="optControls">
 <p class="hint" style="margin-top:0"><b>Auto Leg</b> — set length, optional allowed flight area, draw AOI, then Generate.</p>
@@ -193,9 +193,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="flight-planner.js"></script>
-<script src="optimal-leg.js"></script>
-<script src="ui.js"></script>
-<script src="ui-ops.js"></script>
+<script src="flight-planner.js?v=20260910b"></script>
+<script src="optimal-leg.js?v=20260910b"></script>
+<script src="ui.js?v=20260910b"></script>
+<script src="ui-ops.js?v=20260910b"></script>
 </body>
 </html>
