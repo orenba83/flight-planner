@@ -2,6 +2,7 @@
  * OptimalLegGenerator — reverse-planning module
  * Straight leg of fixed length L maximizing standoff while covering AOI at min SNR.
  * Optional opsArea: entire leg must lie inside the allowed flight polygon.
+ * When opsArea is set, also enumerates chords inside the polygon (not only AOI-centered).
  * If 100% coverage is impossible, returns best-effort leg (max coverage fraction).
  */
 (function (global) {
@@ -77,6 +78,133 @@
       }
     }
     return maxD;
+  }
+
+  function samplePolyBoundary(opsPoly, stepM) {
+    const pts = [];
+    const n = opsPoly.length;
+    for (let i = 0; i < n; i++) {
+      const a = opsPoly[i];
+      const b = opsPoly[(i + 1) % n];
+      const len = havMeters(a, b);
+      const steps = Math.max(1, Math.ceil(len / Math.max(stepM, 500)));
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps;
+        pts.push({
+          lat: a.lat + (b.lat - a.lat) * t,
+          lng: a.lng + (b.lng - a.lng) * t,
+        });
+      }
+    }
+    return pts;
+  }
+
+  function samplePolyInterior(opsPoly, nGrid) {
+    nGrid = Math.max(4, Math.min(20, nGrid | 0));
+    let minLat = Infinity,
+      maxLat = -Infinity,
+      minLng = Infinity,
+      maxLng = -Infinity;
+    for (const p of opsPoly) {
+      minLat = Math.min(minLat, p.lat);
+      maxLat = Math.max(maxLat, p.lat);
+      minLng = Math.min(minLng, p.lng);
+      maxLng = Math.max(maxLng, p.lng);
+    }
+    const pts = [];
+    for (let iy = 0; iy <= nGrid; iy++) {
+      for (let ix = 0; ix <= nGrid; ix++) {
+        const lat = minLat + ((maxLat - minLat) * iy) / nGrid;
+        const lng = minLng + ((maxLng - minLng) * ix) / nGrid;
+        if (pointInPoly(lat, lng, opsPoly)) pts.push({ lat, lng });
+      }
+    }
+    return pts;
+  }
+
+  function legsFromOpsPoly(opsPoly, L, origin) {
+    if (!opsPoly || opsPoly.length < 3) return [];
+    const boundary = samplePolyBoundary(opsPoly, Math.min(8000, Math.max(2000, L / 20)));
+    const interior = samplePolyInterior(opsPoly, 12);
+    const samples = boundary.concat(interior);
+    const tol = Math.max(1500, L * 0.04);
+    const out = [];
+    const seen = new Set();
+
+    function pushLeg(pa, pb) {
+      const d = havMeters(pa, pb);
+      if (Math.abs(d - L) > tol && d < L - tol) return;
+      // If chord longer than L, place exact-L segment along the chord (centered)
+      const ax = toXY(pa.lat, pa.lng, origin);
+      const bx = toXY(pb.lat, pb.lng, origin);
+      const dx = bx.x - ax.x;
+      const dy = bx.y - ax.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const mx = (ax.x + bx.x) / 2;
+      const my = (ax.y + bx.y) / 2;
+      const half = L / 2;
+
+      function trySeg(a, b) {
+        if (!legInsideOps(a, b, opsPoly, origin)) return false;
+        const key =
+          a.x.toFixed(0) +
+          ',' +
+          a.y.toFixed(0) +
+          '>' +
+          b.x.toFixed(0) +
+          ',' +
+          b.y.toFixed(0);
+        if (seen.has(key)) return true;
+        seen.add(key);
+        out.push({ a, b });
+        return true;
+      }
+
+      // Exact L centered on chord midpoint
+      const a0 = { x: mx - ux * half, y: my - uy * half };
+      const b0 = { x: mx + ux * half, y: my + uy * half };
+      if (trySeg(a0, b0)) return;
+
+      // Slide along the chord if chord is longer than L
+      if (len > L + 100) {
+        const slides = 7;
+        for (let s = 0; s <= slides; s++) {
+          const t = s / slides;
+          const cx = ax.x + dx * t;
+          const cy = ay = ax.y + dy * t;
+          // center of L-segment at fraction t along full chord, but constrained
+          const startT = Math.min(Math.max(t * len - half, 0), Math.max(0, len - L));
+          const a = { x: ax.x + ux * startT, y: ax.y + uy * startT };
+          const b = { x: a.x + ux * L, y: a.y + uy * L };
+          trySeg(a, b);
+        }
+      } else if (Math.abs(len - L) <= tol) {
+        trySeg(ax, bx);
+      }
+    }
+
+    for (let i = 0; i < opsPoly.length; i++) {
+      for (let j = i + 1; j < opsPoly.length; j++) {
+        pushLeg(opsPoly[i], opsPoly[j]);
+      }
+    }
+
+    const maxPairs = 5000;
+    let checked = 0;
+    for (let i = 0; i < samples.length && checked < maxPairs; i++) {
+      for (let j = i + 1; j < samples.length && checked < maxPairs; j++) {
+        const d = havMeters(samples[i], samples[j]);
+        if (d < L - tol) continue;
+        if (d > L + tol && d < L) continue;
+        // accept any chord >= L - tol (we'll slide exact-L inside)
+        if (d < L - tol) continue;
+        checked++;
+        pushLeg(samples[i], samples[j]);
+      }
+    }
+    return out;
   }
 
   function distPointSeg(px, py, ax, ay, bx, by) {
@@ -322,6 +450,18 @@
             consider(a, b, standoff, side, deg, ux, uy, nx, ny);
           }
         }
+      }
+    }
+
+    if (opsPoly) {
+      const polyLegs = legsFromOpsPoly(opsPoly, L, origin);
+      for (const leg of polyLegs) {
+        const mid = { x: (leg.a.x + leg.b.x) / 2, y: (leg.a.y + leg.b.y) / 2 };
+        const standoff = Math.hypot(mid.x, mid.y);
+        const dx = leg.b.x - leg.a.x;
+        const dy = leg.b.y - leg.a.y;
+        const headingDeg = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 180;
+        consider(leg.a, leg.b, standoff, 1, headingDeg, dx, dy, -dy, dx);
       }
     }
 
