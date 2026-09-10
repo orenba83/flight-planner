@@ -2,6 +2,7 @@
  * OptimalLegGenerator — reverse-planning module
  * Straight leg of fixed length L maximizing standoff while covering AOI at min SNR.
  * Optional opsArea: entire leg must lie inside the allowed flight polygon.
+ * If 100% coverage is impossible, returns best-effort leg (max coverage fraction).
  */
 (function (global) {
   'use strict';
@@ -41,8 +42,10 @@
     if (!poly || poly.length < 3) return true;
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const yi = poly[i].lat, xi = poly[i].lng;
-      const yj = poly[j].lat, xj = poly[j].lng;
+      const yi = poly[i].lat,
+        xi = poly[i].lng;
+      const yj = poly[j].lat,
+        xj = poly[j].lng;
       const intersect =
         yi > lat !== yj > lat &&
         lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-15) + xi;
@@ -94,10 +97,7 @@
     const noise = -174 + 10 * Math.log10(Math.max(p.bwHz || 25000, 1)) + (p.nf || 0);
     const maxFspl = (p.pt || 0) + gr - lpol - lsys - noise - minSnr - margin;
     if (!(maxFspl > 0)) return 0;
-    return (
-      (Math.pow(10, maxFspl / 20) * C) /
-      (4 * Math.PI * Math.max(freq, 1) * 1e6)
-    );
+    return (Math.pow(10, maxFspl / 20) * C) / (4 * Math.PI * Math.max(freq, 1) * 1e6);
   }
 
   function horizFromSlant(slant, altM) {
@@ -129,12 +129,18 @@
   }
 
   function legCovers(aPts, bPts, aoiXY, Rh) {
+    return coverageFraction(aPts, bPts, aoiXY, Rh) >= 1 - 1e-9;
+  }
+
+  function coverageFraction(aPts, bPts, aoiXY, Rh) {
+    if (!aoiXY.length) return 0;
+    let ok = 0;
     for (let i = 0; i < aoiXY.length; i++) {
       const p = aoiXY[i];
       const d = distPointSeg(p.x, p.y, aPts.x, aPts.y, bPts.x, bPts.y);
-      if (d > Rh + 1) return false;
+      if (d <= Rh + 1) ok++;
     }
-    return true;
+    return ok / aoiXY.length;
   }
 
   function generate(opts) {
@@ -219,7 +225,35 @@
     const aoiPts = sampleAoiGrid(aoi, 12);
     const aoiXY = aoiPts.map((q) => toXY(q.lat, q.lng, origin));
 
-    let best = null;
+    let bestFull = null;
+    let bestPartial = null;
+
+    function consider(a, b, standoff, side, deg, ux, uy, nx, ny) {
+      if (opsPoly && !legInsideOps(a, b, opsPoly, origin)) return;
+      const frac = coverageFraction(a, b, aoiXY, Rh);
+      const cand = {
+        a,
+        b,
+        standoff,
+        side,
+        headingDeg: deg,
+        ux,
+        uy,
+        nx,
+        ny,
+        coverageFrac: frac,
+      };
+      if (frac >= 1 - 1e-9) {
+        if (!bestFull || standoff > bestFull.standoff) bestFull = cand;
+      }
+      if (
+        !bestPartial ||
+        frac > bestPartial.coverageFrac + 1e-6 ||
+        (Math.abs(frac - bestPartial.coverageFrac) < 1e-6 && standoff > bestPartial.standoff)
+      ) {
+        bestPartial = cand;
+      }
+    }
 
     for (let deg = 0; deg < 180; deg += 10) {
       const rad = (deg * Math.PI) / 180;
@@ -242,6 +276,7 @@
       }
       const aoiCenterT = (minT + maxT) / 2;
       const aoiCenterN = (minN + maxN) / 2;
+      const halfL = L / 2;
 
       for (const side of [1, -1]) {
         let lo = 0;
@@ -250,17 +285,15 @@
         for (let iter = 0; iter < 18; iter++) {
           const mid = (lo + hi) / 2;
           const legCenterN = aoiCenterN + side * mid;
-          const legCenterT = aoiCenterT;
-          const halfL = L / 2;
           const a = {
-            x: legCenterT * ux + legCenterN * nx - halfL * ux,
-            y: legCenterT * uy + legCenterN * ny - halfL * uy,
+            x: aoiCenterT * ux + legCenterN * nx - halfL * ux,
+            y: aoiCenterT * uy + legCenterN * ny - halfL * uy,
           };
           const b = {
-            x: legCenterT * ux + legCenterN * nx + halfL * ux,
-            y: legCenterT * uy + legCenterN * ny + halfL * uy,
+            x: aoiCenterT * ux + legCenterN * nx + halfL * ux,
+            y: aoiCenterT * uy + legCenterN * ny + halfL * uy,
           };
-          if (legCovers(a, b, aoiXY, Rh) && legInsideOps(a, b, opsPoly, origin)) {
+          if (legCovers(a, b, aoiXY, Rh) && (!opsPoly || legInsideOps(a, b, opsPoly, origin))) {
             feasible = { a, b, standoff: mid, side };
             lo = mid;
           } else {
@@ -268,43 +301,62 @@
           }
         }
         if (feasible) {
-          if (!best || feasible.standoff > best.standoff) {
-            best = { ...feasible, headingDeg: deg, ux, uy, nx, ny };
+          consider(feasible.a, feasible.b, feasible.standoff, side, deg, ux, uy, nx, ny);
+        }
+
+        const maxS = Math.max(Rh, (maxN - minN) / 2 + Rh);
+        const steps = 12;
+        for (let s = 0; s <= steps; s++) {
+          const standoff = (maxS * s) / steps;
+          const legCenterN = aoiCenterN + side * standoff;
+          for (const tOff of [-0.25, 0, 0.25]) {
+            const legCenterT = aoiCenterT + tOff * (maxT - minT);
+            const a = {
+              x: legCenterT * ux + legCenterN * nx - halfL * ux,
+              y: legCenterT * uy + legCenterN * ny - halfL * uy,
+            };
+            const b = {
+              x: legCenterT * ux + legCenterN * nx + halfL * ux,
+              y: legCenterT * uy + legCenterN * ny + halfL * uy,
+            };
+            consider(a, b, standoff, side, deg, ux, uy, nx, ny);
           }
         }
       }
     }
 
+    const best = bestFull || bestPartial;
     if (!best) {
       return {
         ok: false,
         message:
-          'Cannot place a leg of L=' +
+          'Could not place any leg of L=' +
           (L / 1000).toFixed(1) +
-          ' km that covers the AOI at min SNR' +
-          (opsPoly ? ' while staying fully inside the allowed flight area' : '') +
-          '. Try shorter L, lower min SNR, higher Tx power, smaller AOI, or a larger flight area. Rh≈' +
-          (Rh / 1000).toFixed(1) +
-          ' km.',
-        margins: {
-          RmaxM: Rmax,
-          RmaxFsM: RmaxFs,
-          horizonM: horizon,
-          RhM: Rh,
-          perFreq,
-          minSnr,
-          marginDb,
-          legLengthM: L,
-        },
+          ' km' +
+          (opsPoly ? ' inside the allowed flight area' : '') +
+          '. Enlarge the flight area, shorten L, or clear the flight-area constraint.',
+        margins: { RmaxM: Rmax, RhM: Rh, perFreq, minSnr, legLengthM: L },
       };
     }
 
     const p1 = fromXY(best.a.x, best.a.y, origin);
     const p2 = fromXY(best.b.x, best.b.y, origin);
     const actualLen = havMeters(p1, p2);
+    const frac = best.coverageFrac != null ? best.coverageFrac : 1;
+    const full = frac >= 1 - 1e-9;
+    const pct = Math.round(frac * 1000) / 10;
+
+    const warn = full
+      ? null
+      : 'Best-effort only: about ' +
+        pct +
+        '% of the AOI reaches min SNR along this leg (not 100%). ' +
+        'Improve by longer L, lower min SNR, higher Tx power, larger flight area, or smaller AOI.';
 
     return {
       ok: true,
+      partial: !full,
+      coverageFrac: frac,
       path: [p1, p2],
       standoffM: best.standoff,
       RmaxM: Rmax,
@@ -319,25 +371,39 @@
         horizonM: horizon,
         RhM: Rh,
         standoffM: best.standoff,
+        coverageFrac: frac,
         coverage:
-          '100% AOI within Rh (FSPL, horizon k=4/3)' +
+          (full ? '100%' : pct + '%') +
+          ' AOI within Rh' +
           (opsPoly ? ' · leg inside flight area' : ''),
         marginDb,
         worstFreq,
       },
-      message:
-        'Optimal leg · L=' +
-        (actualLen / 1000).toFixed(1) +
-        ' km · standoff≈' +
-        (best.standoff / 1000).toFixed(2) +
-        ' km · Rh≈' +
-        (Rh / 1000).toFixed(1) +
-        ' km · worst freq ' +
-        worstFreq +
-        ' MHz · heading ' +
-        best.headingDeg +
-        '°' +
-        (opsPoly ? ' · inside flight area' : ''),
+      warning: warn,
+      message: full
+        ? 'Optimal leg · L=' +
+          (actualLen / 1000).toFixed(1) +
+          ' km · standoff≈' +
+          (best.standoff / 1000).toFixed(2) +
+          ' km · Rh≈' +
+          (Rh / 1000).toFixed(1) +
+          ' km · worst freq ' +
+          worstFreq +
+          ' MHz · heading ' +
+          best.headingDeg +
+          '°' +
+          (opsPoly ? ' · inside flight area' : '')
+        : 'Best-effort leg · ~' +
+          pct +
+          '% AOI at min SNR · L=' +
+          (actualLen / 1000).toFixed(1) +
+          ' km · standoff≈' +
+          (best.standoff / 1000).toFixed(2) +
+          ' km · heading ' +
+          best.headingDeg +
+          '°' +
+          (opsPoly ? ' · inside flight area' : '') +
+          '. Not fully optimal — see warning.',
     };
   }
 
