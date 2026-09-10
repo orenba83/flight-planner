@@ -121,9 +121,21 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <button type="button" id="modeOptimal">Optimal Leg</button>
 </div>
 <div id="optControls">
-<p class="hint" style="margin-top:0">Reverse planning: set leg length and min SNR, draw AOI, then Generate. Produces a straight leg of exact length L at maximum standoff with 100% AOI coverage.</p>
-<div class="field" style="margin-bottom:8px"><label>Leg Length L (km) — required</label><input id="legLen" type="number" value="100" min="1" max="2000" step="1" style="font-size:16px;font-weight:700;padding:10px"></div>
-<p class="hint" style="margin:0">Min SNR requirement is taken from the <b>Analysis</b> tab (Min SNR req).</p>
+<p class="hint" style="margin-top:0"><b>Auto Leg</b> — set length, optional allowed flight area, draw AOI, then Generate.</p>
+<div class="field" style="margin-bottom:10px">
+  <label style="color:#93c5fd;font-weight:700">Leg Length L (km)</label>
+  <input id="legLen" type="number" value="100" min="1" max="2000" step="1" style="font-size:18px;font-weight:800;padding:12px;border:2px solid #3b82f6">
+</div>
+<div class="field" style="margin-bottom:8px">
+  <label>SNR safety margin (dB) — accounts for diffraction / terrain vs pure FSPL</label>
+  <input id="snrMargin" type="number" value="6" min="0" max="30" step="0.5">
+</div>
+<div class="row" style="margin-top:6px;grid-template-columns:1fr 1fr">
+  <button type="button" id="mOpsArea" style="background:#1e3a5f">Draw allowed flight area</button>
+  <button type="button" id="clearOpsArea" style="background:#3f1d1d">Clear flight area</button>
+</div>
+<p class="hint" id="opsAreaHint" style="margin:6px 0 0">Flight area: <b>free</b> (no polygon). Optional: draw polygon, then optimal leg endpoints must stay inside it.</p>
+<p class="hint" style="margin:6px 0 0">Min SNR from Analysis tab. Range uses worst frequency (highest path loss + lowest antenna gain).</p>
 </div>
 
 <div class="tabs">
