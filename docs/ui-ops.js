@@ -1,5 +1,5 @@
 /**
- * ui-ops.js — allowed flight area + SNR margin wiring for Optimal Leg.
+ * ui-ops.js — allowed flight area wiring for Optimal Leg.
  * Loaded after ui.js.
  */
 (function () {
@@ -14,9 +14,9 @@
     const h = $('opsAreaHint');
     if (!h) return;
     if (opsArea && opsArea.length >= 3) {
-      h.innerHTML = 'Flight area: <b>' + opsArea.length + ' vertices</b> — optimal leg must stay inside.';
+      h.innerHTML = 'Flight area: <b>' + opsArea.length + ' vertices</b> — entire optimal leg must stay inside.';
     } else {
-      h.innerHTML = 'Flight area: <b>free</b> (no polygon). Optional: draw polygon so leg endpoints stay inside it.';
+      h.innerHTML = 'Flight area: <b>free</b> (no polygon). Optional: draw polygon so the whole leg stays inside it.';
     }
   }
 
@@ -52,15 +52,10 @@
     }
     redrawOpsArea();
     updateOpsHint();
-    setBanner('<b>Flight area set</b> · ' + opsArea.length + ' vertices. Generate Optimal Leg will stay inside it.');
+    setBanner('<b>Flight area set</b> · ' + opsArea.length + ' vertices. Entire optimal leg must stay inside.');
   }
 
   window.__fpOpsArea = function () { return opsArea; };
-  window.__fpSnrMargin = function () {
-    const el = $('snrMargin');
-    const v = el ? +el.value : 6;
-    return Number.isFinite(v) ? v : 6;
-  };
 
   const mOps = $('mOpsArea');
   if (mOps) {
@@ -117,30 +112,17 @@
     }
   });
 
-  const runBtn = $('runBtn');
-  if (runBtn) {
-    const prev = runBtn.onclick;
-    runBtn.onclick = function (ev) {
-      const p = typeof params === 'function' ? params() : {};
-      p.snrMargin = window.__fpSnrMargin();
-      if (typeof OptimalLegGenerator !== 'undefined' && OptimalLegGenerator.generate) {
-        const orig = OptimalLegGenerator.generate;
-        OptimalLegGenerator.generate = function (opts) {
-          opts = opts || {};
-          opts.marginDb = window.__fpSnrMargin();
-          opts.opsArea = window.__fpOpsArea();
-          if (opts.params) opts.params.snrMargin = opts.marginDb;
-          return orig.call(this, opts);
-        };
-        try {
-          if (typeof prev === 'function') return prev.call(this, ev);
-        } finally {
-          OptimalLegGenerator.generate = orig;
-        }
-      } else if (typeof prev === 'function') {
-        return prev.call(this, ev);
-      }
+  // Persistently wrap generate so opsArea is always applied (ui.js awaits before calling generate)
+  if (typeof OptimalLegGenerator !== 'undefined' && OptimalLegGenerator.generate && !OptimalLegGenerator.__opsWrapped) {
+    const orig = OptimalLegGenerator.generate;
+    OptimalLegGenerator.generate = function (opts) {
+      opts = opts || {};
+      opts.marginDb = 0;
+      const area = window.__fpOpsArea && window.__fpOpsArea();
+      if (area && area.length >= 3) opts.opsArea = area;
+      return orig.call(this, opts);
     };
+    OptimalLegGenerator.__opsWrapped = true;
   }
 
   const modeOpt = $('modeOptimal');
