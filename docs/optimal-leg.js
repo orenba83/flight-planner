@@ -131,10 +131,26 @@
     const out = [];
     const seen = new Set();
 
+    function trySeg(a, b) {
+      if (!legInsideOps(a, b, opsPoly, origin)) return false;
+      const key =
+        a.x.toFixed(0) +
+        ',' +
+        a.y.toFixed(0) +
+        '>' +
+        b.x.toFixed(0) +
+        ',' +
+        b.y.toFixed(0);
+      if (seen.has(key)) return true;
+      seen.add(key);
+      out.push({ a, b });
+      return true;
+    }
+
     function pushLeg(pa, pb) {
       const d = havMeters(pa, pb);
-      if (Math.abs(d - L) > tol && d < L - tol) return;
-      // If chord longer than L, place exact-L segment along the chord (centered)
+      if (d < L - tol) return;
+
       const ax = toXY(pa.lat, pa.lng, origin);
       const bx = toXY(pb.lat, pb.lng, origin);
       const dx = bx.x - ax.x;
@@ -142,40 +158,17 @@
       const len = Math.hypot(dx, dy) || 1;
       const ux = dx / len;
       const uy = dy / len;
-      const mx = (ax.x + bx.x) / 2;
-      const my = (ax.y + bx.y) / 2;
       const half = L / 2;
 
-      function trySeg(a, b) {
-        if (!legInsideOps(a, b, opsPoly, origin)) return false;
-        const key =
-          a.x.toFixed(0) +
-          ',' +
-          a.y.toFixed(0) +
-          '>' +
-          b.x.toFixed(0) +
-          ',' +
-          b.y.toFixed(0);
-        if (seen.has(key)) return true;
-        seen.add(key);
-        out.push({ a, b });
-        return true;
-      }
+      const mx = (ax.x + bx.x) / 2;
+      const my = (ax.y + bx.y) / 2;
+      trySeg({ x: mx - ux * half, y: my - uy * half }, { x: mx + ux * half, y: my + uy * half });
 
-      // Exact L centered on chord midpoint
-      const a0 = { x: mx - ux * half, y: my - uy * half };
-      const b0 = { x: mx + ux * half, y: my + uy * half };
-      if (trySeg(a0, b0)) return;
-
-      // Slide along the chord if chord is longer than L
       if (len > L + 100) {
-        const slides = 7;
+        const slides = 9;
+        const maxStart = len - L;
         for (let s = 0; s <= slides; s++) {
-          const t = s / slides;
-          const cx = ax.x + dx * t;
-          const cy = ay = ax.y + dy * t;
-          // center of L-segment at fraction t along full chord, but constrained
-          const startT = Math.min(Math.max(t * len - half, 0), Math.max(0, len - L));
+          const startT = (maxStart * s) / slides;
           const a = { x: ax.x + ux * startT, y: ax.y + uy * startT };
           const b = { x: a.x + ux * L, y: a.y + uy * L };
           trySeg(a, b);
@@ -191,14 +184,11 @@
       }
     }
 
-    const maxPairs = 5000;
+    const maxPairs = 6000;
     let checked = 0;
     for (let i = 0; i < samples.length && checked < maxPairs; i++) {
       for (let j = i + 1; j < samples.length && checked < maxPairs; j++) {
         const d = havMeters(samples[i], samples[j]);
-        if (d < L - tol) continue;
-        if (d > L + tol && d < L) continue;
-        // accept any chord >= L - tol (we'll slide exact-L inside)
         if (d < L - tol) continue;
         checked++;
         pushLeg(samples[i], samples[j]);
