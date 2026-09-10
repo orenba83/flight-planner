@@ -121,13 +121,17 @@
     if (fwd) fwd.classList.toggle('on', next === 'forward');
     if (opt) opt.classList.toggle('on', next === 'optimal');
     const optPane = $('optControls');
-    if (optPane) optPane.style.display = next === 'optimal' ? '' : 'none';
+    if (optPane) { optPane.style.display = next === 'optimal' ? 'block' : 'none'; optPane.classList.toggle('show', next === 'optimal'); }
     const runBtn = $('runBtn');
     if (next === 'optimal') {
       if (runBtn) { runBtn.textContent = 'Generate Optimal Leg'; runBtn.disabled = !aoi; }
-      setBanner('<b>Optimal mode:</b> Set Leg Length (default 100 km), draw AOI, then Generate Optimal Leg.');
+      setBanner('<b>Optimal / Auto Leg:</b> Set Leg Length, optional flight area, draw AOI, then Generate.');
       const sheet = $('sheet');
       if (sheet) sheet.classList.add('open');
+      if (optPane) {
+        optPane.style.display = 'block';
+        try { optPane.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+      }
       const leg = $('legLen');
       if (leg) { try { leg.focus(); leg.select(); } catch (e) {} }
     } else {
