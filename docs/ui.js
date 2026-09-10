@@ -159,7 +159,6 @@
       L.circleMarker([p.lat, p.lng], { radius: 7, color: '#16a34a', weight: 2, fillColor: '#86efac', fillOpacity: 1 })
         .bindTooltip(i === 0 ? 'Start' : 'End', { permanent: false }).addTo(optLayer);
     });
-    // Zoom out so both AOI and the generated leg are fully visible
     try {
       const b = L.latLngBounds(result.path.map((p) => [p.lat, p.lng]));
       if (aoi) b.extend(aoi.getSouthWest()).extend(aoi.getNorthEast());
@@ -210,6 +209,7 @@
       applyOptimalPath(result);
       const v = OptimalLegGenerator.validateCoverage(result.path, aoi, p, interpGain);
       const margins = result.margins || {};
+      const isPartial = !!result.partial || (result.coverageFrac != null && result.coverageFrac < 0.999);
       const horizonKm = margins.horizonM ? (margins.horizonM / 1000) : null;
       const fsKm = margins.RmaxFsM ? (margins.RmaxFsM / 1000) : null;
       const freqLines = (margins.perFreq || [])
@@ -222,9 +222,17 @@
         .join('<br>');
 
       $('sheet').classList.add('open');
+      const warnHtml = isPartial
+        ? '<div style="margin:8px 0;padding:8px;border:1px solid #f59e0b;background:#422006;border-radius:8px;color:#fde68a">' +
+          '<b>Not 100% optimal</b><br>' +
+          (result.warning || result.message) +
+          '<br>Showing the best feasible recommendation under current constraints.</div>'
+        : '';
       $('result').innerHTML =
-        '<b>Optimal leg ready</b><br>' + result.message +
-        '<br><br><b>Coverage:</b> ' + (v.ok ? 'PASS' : 'FAIL') +
+        warnHtml +
+        '<b>' + (isPartial ? 'Best-effort leg' : 'Optimal leg ready') + '</b><br>' + result.message +
+        '<br><br><b>Coverage:</b> ' +
+        (margins.coverageFrac != null ? (Math.round(margins.coverageFrac * 1000) / 10) + '%' : (v.ok ? 'PASS' : 'FAIL')) +
         ' · min SNR ' + (p.minSnr || 10) + ' dB<br>' +
         '<b>Standoff:</b> ' + (result.standoffM / 1000).toFixed(2) + ' km<br>' +
         '<b>Usable ground range Rh:</b> ' + (result.RhM / 1000).toFixed(1) + ' km' +
@@ -236,8 +244,14 @@
         (freqLines ? '<br><b>Per-frequency usable range:</b><br>' + freqLines : '') +
         '<br><br>Path loaded into markers. Switch to <b>Forward</b> and click <b>Run Analysis</b> for SNR heatmap.';
 
-      setBanner('<b>Optimal leg drawn</b> · standoff ' + (result.standoffM / 1000).toFixed(2) +
-        ' km · switch to Forward + Run Analysis for heatmap.');
+      if (isPartial) {
+        setBanner('<b>Best-effort leg</b> · ~' +
+          (Math.round((result.coverageFrac || 0) * 1000) / 10) +
+          '% AOI at min SNR · not fully optimal — see results panel.');
+      } else {
+        setBanner('<b>Optimal leg drawn</b> · standoff ' + (result.standoffM / 1000).toFixed(2) +
+          ' km · switch to Forward + Run Analysis for heatmap.');
+      }
     } catch (err) {
       $('result').textContent = 'Error: ' + (err.message || err);
       setBanner('<b>Error.</b> ' + (err.message || err));
