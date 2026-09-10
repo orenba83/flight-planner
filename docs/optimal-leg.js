@@ -1,13 +1,7 @@
 /**
  * OptimalLegGenerator — reverse-planning module
- * Generates a straight flight leg of fixed length L that maximizes standoff
- * from the AOI while guaranteeing SNR >= minSnr for every AOI sample
- * across all configured frequencies (worst-case link budget).
- *
- * Range is FSPL limited AND capped by radio horizon (k=4/3 Earth).
- * Includes safety margin so Run Analysis (with diffraction) still meets min SNR.
- * Optional opsArea polygon constrains leg endpoints.
- * Does not mutate global path/AOI state; caller applies the result.
+ * Straight leg of fixed length L maximizing standoff while covering AOI at min SNR.
+ * Optional opsArea: entire leg must lie inside the allowed flight polygon.
  */
 (function (global) {
   'use strict';
@@ -43,15 +37,15 @@
     };
   }
 
-  /** Ray-casting point-in-polygon. poly = [{lat,lng}, ...] */
   function pointInPoly(lat, lng, poly) {
     if (!poly || poly.length < 3) return true;
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const yi = poly[i].lat, xi = poly[i].lng;
       const yj = poly[j].lat, xj = poly[j].lng;
-      const intersect = ((yi > lat) !== (yj > lat)) &&
-        (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-15) + xi);
+      const intersect =
+        yi > lat !== yj > lat &&
+        lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-15) + xi;
       if (intersect) inside = !inside;
     }
     return inside;
@@ -59,13 +53,27 @@
 
   function legInsideOps(a, b, opsPoly, origin) {
     if (!opsPoly || opsPoly.length < 3) return true;
-    const pa = fromXY(a.x, a.y, origin);
-    const pb = fromXY(b.x, b.y, origin);
-    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const pm = fromXY(mid.x, mid.y, origin);
-    return pointInPoly(pa.lat, pa.lng, opsPoly) &&
-      pointInPoly(pb.lat, pb.lng, opsPoly) &&
-      pointInPoly(pm.lat, pm.lng, opsPoly);
+    const n = 12;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      const p = fromXY(x, y, origin);
+      if (!pointInPoly(p.lat, p.lng, opsPoly)) return false;
+    }
+    return true;
+  }
+
+  function maxChordInOps(opsPoly) {
+    if (!opsPoly || opsPoly.length < 2) return Infinity;
+    let maxD = 0;
+    for (let i = 0; i < opsPoly.length; i++) {
+      for (let j = i + 1; j < opsPoly.length; j++) {
+        const d = havMeters(opsPoly[i], opsPoly[j]);
+        if (d > maxD) maxD = d;
+      }
+    }
+    return maxD;
   }
 
   function distPointSeg(px, py, ax, ay, bx, by) {
@@ -78,10 +86,6 @@
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
 
-  /**
-   * Max slant range where SNR >= minSnr after safety margin.
-   * Same link budget as forward analysis (Pt, Gr(f), NF, BW, Lpol, Lsys).
-   */
   function maxSlantRange(p, freq, minSnr, interpGain, marginDb) {
     const gr = typeof interpGain === 'function' ? interpGain(freq) : 0;
     const lpol = Number.isFinite(p.lpol) ? p.lpol : 0;
@@ -90,8 +94,10 @@
     const noise = -174 + 10 * Math.log10(Math.max(p.bwHz || 25000, 1)) + (p.nf || 0);
     const maxFspl = (p.pt || 0) + gr - lpol - lsys - noise - minSnr - margin;
     if (!(maxFspl > 0)) return 0;
-    const d = Math.pow(10, maxFspl / 20) * C / (4 * Math.PI * Math.max(freq, 1) * 1e6);
-    return d;
+    return (
+      (Math.pow(10, maxFspl / 20) * C) /
+      (4 * Math.PI * Math.max(freq, 1) * 1e6)
+    );
   }
 
   function horizFromSlant(slant, altM) {
@@ -136,11 +142,31 @@
     const L = Math.max(1000, opts.legLengthM || 100000);
     const p = opts.params || {};
     const minSnr = Number.isFinite(p.minSnr) ? p.minSnr : 10;
-    const marginDb = Number.isFinite(opts.marginDb) ? opts.marginDb
-      : (Number.isFinite(p.snrMargin) ? p.snrMargin : 6);
+    const marginDb = 0;
     const interpGain = opts.interpGain || (() => 0);
     const freqs = p.freqs && p.freqs.length ? p.freqs : [100];
-    const opsPoly = opts.opsArea && opts.opsArea.length >= 3 ? opts.opsArea : null;
+
+    let opsPoly = opts.opsArea && opts.opsArea.length >= 3 ? opts.opsArea : null;
+    if (!opsPoly && typeof window !== 'undefined' && typeof window.__fpOpsArea === 'function') {
+      const w = window.__fpOpsArea();
+      if (w && w.length >= 3) opsPoly = w;
+    }
+
+    if (opsPoly) {
+      const maxChord = maxChordInOps(opsPoly);
+      if (L > maxChord * 1.02) {
+        return {
+          ok: false,
+          message:
+            'Leg length L=' +
+            (L / 1000).toFixed(1) +
+            ' km is longer than the allowed flight area (approx max span ' +
+            (maxChord / 1000).toFixed(1) +
+            ' km). Shorten L or enlarge the allowed flight area.',
+          margins: { legLengthM: L, maxChordM: maxChord, minSnr },
+        };
+      }
+    }
 
     let Rmax = Infinity;
     const perFreq = [];
@@ -149,7 +175,10 @@
       const r = maxSlantRange(p, f, minSnr, interpGain, marginDb);
       const gr = typeof interpGain === 'function' ? interpGain(f) : 0;
       perFreq.push({ freq: f, Rmax: r, Gr: gr });
-      if (r < Rmax) { Rmax = r; worstFreq = f; }
+      if (r < Rmax) {
+        Rmax = r;
+        worstFreq = f;
+      }
     }
     if (!(Rmax > 50)) {
       return {
@@ -162,7 +191,10 @@
 
     const horizon = radioHorizonMeters(p.altM || 0);
     const RmaxFs = Rmax;
-    const RmaxEff = Math.min(Rmax, Math.sqrt(horizon * horizon + (p.altM || 0) * (p.altM || 0)));
+    const RmaxEff = Math.min(
+      Rmax,
+      Math.sqrt(horizon * horizon + (p.altM || 0) * (p.altM || 0))
+    );
     Rmax = RmaxEff;
     const Rh = Math.min(horizFromSlant(RmaxFs, p.altM || 0), horizon);
     if (!(Rh > 50)) {
@@ -170,7 +202,15 @@
         ok: false,
         message:
           'Minimum SNR unattainable at this altitude (slant range < altitude or below horizon). Lower altitude or relax SNR / power.',
-        margins: { RmaxM: Rmax, RmaxFsM: RmaxFs, horizonM: horizon, RhM: Rh, perFreq, minSnr, marginDb },
+        margins: {
+          RmaxM: Rmax,
+          RmaxFsM: RmaxFs,
+          horizonM: horizon,
+          RhM: Rh,
+          perFreq,
+          minSnr,
+          marginDb,
+        },
       };
     }
 
@@ -188,7 +228,10 @@
       const nx = -uy;
       const ny = ux;
 
-      let minN = Infinity, maxN = -Infinity, minT = Infinity, maxT = -Infinity;
+      let minN = Infinity,
+        maxN = -Infinity,
+        minT = Infinity,
+        maxT = -Infinity;
       for (const q of aoiXY) {
         const t = q.x * ux + q.y * uy;
         const n = q.x * nx + q.y * ny;
@@ -236,16 +279,23 @@
       return {
         ok: false,
         message:
-          'Cannot cover the entire AOI at the required min SNR with leg length ' +
+          'Cannot place a leg of L=' +
           (L / 1000).toFixed(1) +
-          ' km' +
-          (opsPoly ? ' inside the allowed flight area' : '') +
-          '. Try longer leg, lower min SNR, higher Tx power, smaller AOI, or larger flight area. Rmax≈' +
-          (Rmax / 1000).toFixed(1) +
-          ' km, Rh≈' +
+          ' km that covers the AOI at min SNR' +
+          (opsPoly ? ' while staying fully inside the allowed flight area' : '') +
+          '. Try shorter L, lower min SNR, higher Tx power, smaller AOI, or a larger flight area. Rh≈' +
           (Rh / 1000).toFixed(1) +
           ' km.',
-        margins: { RmaxM: Rmax, RmaxFsM: RmaxFs, horizonM: horizon, RhM: Rh, perFreq, minSnr, marginDb, legLengthM: L },
+        margins: {
+          RmaxM: Rmax,
+          RmaxFsM: RmaxFs,
+          horizonM: horizon,
+          RhM: Rh,
+          perFreq,
+          minSnr,
+          marginDb,
+          legLengthM: L,
+        },
       };
     }
 
@@ -269,7 +319,9 @@
         horizonM: horizon,
         RhM: Rh,
         standoffM: best.standoff,
-        coverage: '100% AOI within Rh (FSPL + ' + marginDb + ' dB margin, horizon k=4/3)',
+        coverage:
+          '100% AOI within Rh (FSPL, horizon k=4/3)' +
+          (opsPoly ? ' · leg inside flight area' : ''),
         marginDb,
         worstFreq,
       },
@@ -282,22 +334,22 @@
         (Rh / 1000).toFixed(1) +
         ' km · worst freq ' +
         worstFreq +
-        ' MHz · margin ' +
-        marginDb +
-        ' dB · heading ' +
+        ' MHz · heading ' +
         best.headingDeg +
         '°' +
-        (opsPoly ? ' · constrained to flight area' : ''),
+        (opsPoly ? ' · inside flight area' : ''),
     };
   }
 
   function validateCoverage(path, aoi, p, interpGain) {
-    if (!path || path.length < 2 || !aoi) return { ok: false, message: 'Missing path or AOI' };
+    if (!path || path.length < 2 || !aoi)
+      return { ok: false, message: 'Missing path or AOI' };
     const minSnr = Number.isFinite(p.minSnr) ? p.minSnr : 10;
     const freqs = p.freqs && p.freqs.length ? p.freqs : [100];
-    const marginDb = Number.isFinite(p.snrMargin) ? p.snrMargin : 6;
+    const marginDb = 0;
     let Rmax = Infinity;
-    for (const f of freqs) Rmax = Math.min(Rmax, maxSlantRange(p, f, minSnr, interpGain, marginDb));
+    for (const f of freqs)
+      Rmax = Math.min(Rmax, maxSlantRange(p, f, minSnr, interpGain, marginDb));
     const horizon = radioHorizonMeters(p.altM || 0);
     const Rh = Math.min(horizFromSlant(Rmax, p.altM || 0), horizon);
     const origin = { lat: aoi.getCenter().lat, lng: aoi.getCenter().lng };
@@ -310,7 +362,9 @@
       RhM: Rh,
       RmaxM: Rmax,
       horizonM: horizon,
-      message: ok ? 'Coverage OK at min SNR ' + minSnr + ' dB' : 'Coverage FAILED at min SNR ' + minSnr + ' dB',
+      message: ok
+        ? 'Coverage OK at min SNR ' + minSnr + ' dB'
+        : 'Coverage FAILED at min SNR ' + minSnr + ' dB',
     };
   }
 
