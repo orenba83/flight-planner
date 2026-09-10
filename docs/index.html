@@ -127,10 +127,6 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
   <label style="color:#93c5fd;font-weight:700">Leg Length L (km)</label>
   <input id="legLen" type="number" value="100" min="1" max="2000" step="1" style="font-size:18px;font-weight:800;padding:12px;border:2px solid #3b82f6">
 </div>
-<div class="field" style="margin-bottom:8px">
-  <label>SNR safety margin (dB) — accounts for diffraction / terrain vs pure FSPL</label>
-  <input id="snrMargin" type="number" value="6" min="0" max="30" step="0.5">
-</div>
 <div class="row" style="margin-top:6px;grid-template-columns:1fr 1fr">
   <button type="button" id="mOpsArea" style="background:#1e3a5f">Draw allowed flight area</button>
   <button type="button" id="clearOpsArea" style="background:#3f1d1d">Clear flight area</button>
@@ -194,9 +190,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="flight-planner.js?v=20260910c"></script>
-<script src="optimal-leg.js?v=20260910c"></script>
-<script src="ui.js?v=20260910c"></script>
-<script src="ui-ops.js?v=20260910c"></script>
+<script src="flight-planner.js?v=20260910d"></script>
+<script src="optimal-leg.js?v=20260910d"></script>
+<script src="ui.js?v=20260910d"></script>
+<script src="ui-ops.js?v=20260910d"></script>
 </body>
 </html>
