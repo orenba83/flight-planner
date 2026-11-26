@@ -19,7 +19,9 @@ function renderUi(){
  if(el('runLinkBtn'))el('runLinkBtn').disabled=transmitters.length<2;
 }
 function placement(on){
- placing=!!on;if(typeof setMode==='function')setMode(placing?'tx':'path');
+ placing=!!on;
+ if(placing){const linkTab=document.querySelector('.tabs button[data-tab="link"]');if(linkTab&&!linkTab.classList.contains('on'))linkTab.click()}
+ if(typeof setMode==='function')setMode(placing?'tx':'path');
  if(el('mTx'))el('mTx').classList.toggle('active',placing);
  if(el('startTxPlacement'))el('startTxPlacement').textContent=placing?'Placement active · click map':'Place transmitter on map';
  if(placing){setBanner('<b>Transmitter placement:</b> Click map to add stations (max 10). Click again to exit.');el('sheet').classList.add('open')}
