@@ -40,6 +40,7 @@
       fields,
       gainTable: typeof gainTable !== 'undefined' ? gainTable : [],
       path: typeof path !== 'undefined' ? path : [],
+      transmitters: window.FlightPlannerTransmitters ? window.FlightPlannerTransmitters.get() : [],
       aoi: typeof aoi !== 'undefined' && aoi ? [[aoi.getSouth(), aoi.getWest()], [aoi.getNorth(), aoi.getEast()]] : null,
       center: map.getCenter(),
       zoom: map.getZoom(),
@@ -68,6 +69,7 @@
       data.path.forEach((p) => { if (typeof addPathPoint === 'function') addPathPoint(p.lat, p.lng, true); });
     }
     if (data.aoi && typeof setAoi === 'function') setAoi(L.latLngBounds(data.aoi[0], data.aoi[1]), true);
+    if (window.FlightPlannerTransmitters && Array.isArray(data.transmitters)) window.FlightPlannerTransmitters.set(data.transmitters);
     if (data.center) map.setView(data.center, data.zoom || map.getZoom());
     if (typeof updateRun === 'function') updateRun();
     if (typeof persistSoon === 'function') persistSoon();
