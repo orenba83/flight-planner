@@ -79,6 +79,31 @@
     }).addTo(selectionLayer);
   }
 
+  window.showSelectedMapPoint = function (data) {
+    const panel = $('cellDetails');
+    const body = $('cellDetailsBody');
+    if (!panel || !body || !data) return;
+    selectedCell = null;
+    selectionLayer.clearLayers();
+    const lat = Number(data.lat), lng = Number(data.lng);
+    const elevation = Number.isFinite(data.elevation) ? data.elevation : null;
+    const heightAgl = Number.isFinite(data.heightAgl) ? data.heightAgl : null;
+    body.innerHTML =
+      '<div style="margin-bottom:9px;color:#5eead4;font-weight:700">' +
+      (data.label || 'Selected map point') + '</div>' +
+      '<div class="cell-details-grid">' +
+      '<div><span>Latitude</span><strong>' + lat.toFixed(6) + '</strong></div>' +
+      '<div><span>Longitude</span><strong>' + lng.toFixed(6) + '</strong></div>' +
+      '<div><span>Terrain elevation</span><strong>' + (elevation === null ? 'Not loaded' : elevation.toFixed(1) + ' m AMSL') + '</strong></div>' +
+      '<div><span>Antenna height</span><strong>' + (heightAgl === null ? '—' : heightAgl.toFixed(1) + ' m AGL') + '</strong></div>' +
+      (elevation === null || heightAgl === null ? '' : '<div><span>Antenna elevation</span><strong>' + (elevation + heightAgl).toFixed(1) + ' m AMSL</strong></div>') +
+      '</div>';
+    panel.classList.add('show');
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      L.circleMarker([lat, lng], { radius: 9, color: '#fff', weight: 2, fillColor: '#14b8a6', fillOpacity: 1, interactive: false }).addTo(selectionLayer);
+    }
+  };
+
   const originalRedrawPath = redrawPath;
   redrawPath = function () {
     originalRedrawPath();
