@@ -9,7 +9,7 @@ function icon(i){return L.divIcon({className:'',html:'<div class="tx-marker"><sp
 function render(){
  txLayer.clearLayers();
  transmitters.forEach((t,i)=>{const m=L.marker([t.lat,t.lng],{icon:icon(i+1),draggable:true,title:'Transmitter '+(i+1)}).addTo(txLayer);
- m.bindTooltip('TX '+(i+1)+' · 2 m AGL');m.on('dragend',()=>{const p=m.getLatLng();transmitters[i]={lat:p.lat,lng:p.lng,heightAgl:2};save();renderUi()})});
+ m.bindTooltip('TX '+(i+1)+' · 2 m AGL');m.on('click',e=>{L.DomEvent.stopPropagation(e);const ground=Number(elevAt(t.lat,t.lng));if(typeof window.showSelectedMapPoint==='function')window.showSelectedMapPoint({label:'Transmitter '+(i+1),lat:t.lat,lng:t.lng,elevation:Number.isFinite(ground)?ground:null,heightAgl:2})});m.on('dragend',()=>{const p=m.getLatLng();transmitters[i]={lat:p.lat,lng:p.lng,heightAgl:2};save();renderUi()})});
  renderUi();
 }
 function renderUi(){
