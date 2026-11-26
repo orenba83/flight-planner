@@ -74,7 +74,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 #optControls.show{display:block !important}
 
 
-.cell-details{display:none;margin-top:10px;background:#0d1b2d;border:1px solid #3b82f6;border-radius:12px;padding:12px;font-size:13px;line-height:1.55;box-shadow:0 4px 14px #0005}
+.cell-details{display:none;position:fixed;z-index:35;left:68px;top:154px;width:min(330px,calc(100vw - 84px));max-height:calc(100vh - 174px);overflow:auto;background:#0d1b2df2;border:1px solid #3b82f6;border-radius:12px;padding:12px;font-size:13px;line-height:1.55;box-shadow:0 8px 28px #0009;backdrop-filter:blur(8px)}
 .cell-details.show{display:block}.cell-details-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.cell-details-head b{color:#93c5fd}.cell-details-close{border:0;border-radius:7px;background:#243044;color:#fff;padding:5px 9px;cursor:pointer}.cell-details-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}.cell-details-grid span{display:block;color:#93a0b5;font-size:10px}.cell-details-grid strong{font-size:13px;color:#e8eef7}
 .grid-size{grid-column:1/-1;margin-top:-3px;padding:7px 9px;border:1px solid #334155;border-radius:9px;background:#0d1524;color:#bfdbfe;font-size:11px;line-height:1.5}
 .tx-marker{background:#0f766e;border:2px solid #99f6e4;color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;box-shadow:0 2px 8px #0009}
@@ -209,8 +209,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 </div>
 <input id="loadCfgFile" type="file" accept="application/json,.json" style="display:none">
 <p class="hint">Save downloads JSON. Send the file with the link. The other person clicks Load Configuration.</p>
-<div class="result" id="result">Draw path and AOI, then Run Analysis.</div>\n<div class="cell-details" id="cellDetails" aria-live="polite"><div class="cell-details-head"><b>Selected map point</b><button type="button" class="cell-details-close" id="closeCellDetails">Close</button></div><div id="cellDetailsBody"></div></div>
+<div class="result" id="result">Draw path and AOI, then Run Analysis.</div>\n
 </aside>
+<div class="cell-details" id="cellDetails" aria-live="polite"><div class="cell-details-head"><b>Selected map point</b><button type="button" class="cell-details-close" id="closeCellDetails">Close</button></div><div id="cellDetailsBody"></div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="flight-planner.js?v=20260910g"></script>
 <script src="optimal-leg.js?v=20260910g"></script>
