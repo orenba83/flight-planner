@@ -24,6 +24,8 @@ function placement(on){
  if(el('startTxPlacement'))el('startTxPlacement').textContent=placing?'Placement active · click map':'Place transmitter on map';
  if(placing){setBanner('<b>Transmitter placement:</b> Click map to add stations (max 10). Click again to exit.');el('sheet').classList.add('open')}
 }
+const baseSetMode=setMode;
+setMode=function(next){if(next!=='tx'&&placing){placing=false;if(el('mTx'))el('mTx').classList.remove('active');if(el('startTxPlacement'))el('startTxPlacement').textContent='Place transmitter on map'}const r=baseSetMode(next);if(next!=='tx'&&el('mTx'))el('mTx').classList.remove('active');return r};
 if(el('mTx'))el('mTx').addEventListener('click',()=>placement(!placing));
 if(el('startTxPlacement'))el('startTxPlacement').addEventListener('click',()=>placement(!placing));
 map.on('click',e=>{if(!placing)return;if(transmitters.length>=10){setBanner('<b>Limit reached:</b> Maximum 10 transmitters.');placement(false);return}
@@ -54,14 +56,21 @@ async function calculate(){
  try{
   const p=params(),D=hav(A,B);if(D<1)throw new Error('Transmitters are too close.');
   const count=clamp(Math.ceil(D/250),40,160),points=Array.from({length:count+1},(_,i)=>({lat:A.lat+(B.lat-A.lat)*i/count,lng:A.lng+(B.lng-A.lng)*i/count}));
-  const source=await fetchElevations(points),ground=points.map(pt=>elevAt(pt.lat,pt.lng)),hA=ground[0]+2,hB=ground.at(-1)+2,f=p.freqs[0],lambda=C/(f*1e6);
-  const samples=points.map((pt,i)=>{const t=i/count,d=D*t,d2=D-d,bulge=d>0&&d2>0?d*d2/(2*K_EFF*R):0,ray=hA+(hB-hA)*t,fresnel=d>0&&d2>0?Math.sqrt(lambda*d*d2/D):0;return{d,terrain:ground[i]+bulge,ray,fresnel}});
-  let vmax=-Infinity,minClear=Infinity,minFresnel=Infinity;
-  for(let i=1;i<samples.length-1;i++){const s=samples[i],d1=s.d,d2=D-d1,clear=s.ray-s.terrain;minClear=Math.min(minClear,clear);minFresnel=Math.min(minFresnel,clear-.6*s.fresnel);const v=(s.terrain-s.ray)*Math.sqrt(2/lambda*(1/d1+1/d2));vmax=Math.max(vmax,v)}
-  const diff=vmax<=-.78?0:Math.min(knifeEdgeLoss(vmax),60),fspl=20*Math.log10(4*Math.PI*D/lambda),gain=interpGain(f),noise=-174+10*Math.log10(p.bwHz)+p.nf;
-  const rx=p.pt+2*gain-fspl-diff-p.lpol-p.lsys,snr=rx-noise,margin=snr-p.minSnr,status=margin>=6?'PASS':margin>=0?'MARGINAL':'FAIL',cls=status==='PASS'?'ok':status==='MARGINAL'?'warn':'bad';
+  const source=await fetchElevations(points),ground=points.map(pt=>elevAt(pt.lat,pt.lng)),hA=ground[0]+2,hB=ground[ground.length-1]+2;
+  const profiles=p.freqs.map(f=>{
+   const lambda=C/(f*1e6);
+   const samples=points.map((pt,i)=>{const t=i/count,d=D*t,d2=D-d,bulge=d>0&&d2>0?d*d2/(2*K_EFF*R):0,ray=hA+(hB-hA)*t,fresnel=d>0&&d2>0?Math.sqrt(lambda*d*d2/D):0;return{d,terrain:ground[i]+bulge,ray,fresnel}});
+   let vmax=-Infinity,minClear=Infinity,minFresnel=Infinity;
+   for(let i=1;i<samples.length-1;i++){const q=samples[i],d1=q.d,d2=D-d1,clear=q.ray-q.terrain;minClear=Math.min(minClear,clear);minFresnel=Math.min(minFresnel,clear-.6*q.fresnel);const v=(q.terrain-q.ray)*Math.sqrt(2/lambda*(1/d1+1/d2));vmax=Math.max(vmax,v)}
+   const diff=vmax<=-.78?0:Math.min(knifeEdgeLoss(vmax),60),fspl=20*Math.log10(4*Math.PI*D/lambda),gain=interpGain(f),noise=-174+10*Math.log10(p.bwHz)+p.nf;
+   const rx=p.pt+2*gain-fspl-diff-p.lpol-p.lsys,snr=rx-noise,margin=snr-p.minSnr;
+   return{f,samples,diff,fspl,gain,noise,rx,snr,margin,minClear,minFresnel};
+  });
+  const worst=profiles.reduce((a,b)=>a.margin<=b.margin?a:b),{f,samples,diff,fspl,gain,noise,rx,snr,margin,minClear,minFresnel}=worst;
+  const status=margin>=6?'PASS':margin>=0?'MARGINAL':'FAIL',cls=status==='PASS'?'ok':status==='MARGINAL'?'warn':'bad';
   if(linkLine)map.removeLayer(linkLine);linkLine=L.polyline([[A.lat,A.lng],[B.lat,B.lng]],{color:status==='PASS'?'#22c55e':status==='MARGINAL'?'#f59e0b':'#ef4444',weight:4,dashArray:'8 5'}).addTo(map);linkLine.bindTooltip('TX '+(ia+1)+' ↔ TX '+(ib+1)+' · '+km(D));map.fitBounds(linkLine.getBounds().pad(.2));
-  out.innerHTML='<div class="'+cls+'" style="font-size:16px;font-weight:800">'+status+' · Link margin '+fmt(margin,1)+' dB</div><b>Link:</b> TX '+(ia+1)+' ↔ TX '+(ib+1)+' · '+km(D)+'<br><b>Terrain source:</b> '+source+' · <b>Frequency:</b> '+fmt(f,3)+' MHz<br><b>Antennas:</b> 2 m AGL at both ends<hr style="border-color:#334155"><b>Path budget</b><br>FSPL: '+fmt(fspl,2)+' dB<br>Diffraction loss: '+fmt(diff,2)+' dB<br>Tx power: '+fmt(p.pt,1)+' dBm · Tx/Rx gain: '+fmt(gain,1)+' / '+fmt(gain,1)+' dBi<br><b>Received power:</b> '+fmt(rx,2)+' dBm<br>Noise floor: '+fmt(noise,2)+' dBm<br><b>SNR:</b> '+fmt(snr,2)+' dB · Required: '+fmt(p.minSnr,1)+' dB<br><b>LOS:</b> '+(minClear>=0?'Clear':'Blocked')+' · <b>60% Fresnel:</b> '+(minFresnel>=0?'Clear':'Intrusion')+'<br>Minimum terrain clearance: '+fmt(minClear,1)+' m · Minimum 60% Fresnel clearance: '+fmt(minFresnel,1)+' m<br>Assumes identical radios and the same antenna gain at both ends.'+profileSvg(samples,D);
+  const frequencyRows=profiles.map(q=>'<div>'+fmt(q.f,3)+' MHz: SNR '+fmt(q.snr,1)+' dB · margin '+fmt(q.margin,1)+' dB · diffraction '+fmt(q.diff,1)+' dB</div>').join('');
+  out.innerHTML='<div class="'+cls+'" style="font-size:16px;font-weight:800">'+status+' · Worst-case link margin '+fmt(margin,1)+' dB</div><b>Link:</b> TX '+(ia+1)+' ↔ TX '+(ib+1)+' · '+km(D)+'<br><b>Terrain source:</b> '+source+' · <b>Worst frequency:</b> '+fmt(f,3)+' MHz<br><b>Antennas:</b> 2 m AGL at both ends<hr style="border-color:#334155"><b>Worst-case path budget</b><br>FSPL: '+fmt(fspl,2)+' dB<br>Diffraction loss: '+fmt(diff,2)+' dB<br>Tx power: '+fmt(p.pt,1)+' dBm · Tx/Rx gain: '+fmt(gain,1)+' / '+fmt(gain,1)+' dBi<br><b>Received power:</b> '+fmt(rx,2)+' dBm<br>Noise floor: '+fmt(noise,2)+' dBm<br><b>SNR:</b> '+fmt(snr,2)+' dB · Required: '+fmt(p.minSnr,1)+' dB<br><b>LOS:</b> '+(minClear>=0?'Clear':'Blocked')+' · <b>60% Fresnel:</b> '+(minFresnel>=0?'Clear':'Intrusion')+'<br>Minimum terrain clearance: '+fmt(minClear,1)+' m · Minimum 60% Fresnel clearance: '+fmt(minFresnel,1)+' m<br><b>All configured frequencies</b>'+frequencyRows+'<br>Assumes identical radios and the same antenna gain at both ends.'+profileSvg(samples,D);
  }catch(err){out.textContent='Link calculation failed: '+(err.message||err)}
  finally{btn.disabled=transmitters.length<2;btn.textContent='Calculate radio link'}
 }
