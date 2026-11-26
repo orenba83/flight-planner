@@ -38,7 +38,7 @@
     aircraftMarker.bindTooltip('Aircraft point ' + index + ' / ' + path.length, {
       permanent: true, direction: 'top', offset: [0, -10]
     });
-    aircraftMarker.setZIndexOffset(1000);
+    aircraftMarker.bringToFront();
   }
 
   function closeCellDetails() {
