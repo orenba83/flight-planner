@@ -76,6 +76,13 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 
 .cell-details{display:none;margin-top:10px;background:#0d1b2d;border:1px solid #3b82f6;border-radius:12px;padding:12px;font-size:13px;line-height:1.55;box-shadow:0 4px 14px #0005}
 .cell-details.show{display:block}.cell-details-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.cell-details-head b{color:#93c5fd}.cell-details-close{border:0;border-radius:7px;background:#243044;color:#fff;padding:5px 9px;cursor:pointer}.cell-details-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}.cell-details-grid span{display:block;color:#93a0b5;font-size:10px}.cell-details-grid strong{font-size:13px;color:#e8eef7}
+.grid-size{grid-column:1/-1;margin-top:-3px;padding:7px 9px;border:1px solid #334155;border-radius:9px;background:#0d1524;color:#bfdbfe;font-size:11px;line-height:1.5}
+.tx-marker{background:#0f766e;border:2px solid #99f6e4;color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;box-shadow:0 2px 8px #0009}
+.tx-marker span{transform:rotate(45deg);font-size:12px}
+.link-result{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0d1524;font-size:12px;line-height:1.55}
+.link-result .ok{color:#86efac}.link-result .warn{color:#fbbf24}.link-result .bad{color:#fca5a5}
+.link-profile{width:100%;height:auto;display:block;margin-top:8px;background:#111c2d;border-radius:8px}
+.tx-list{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}.tx-chip{padding:4px 7px;border-radius:7px;background:#173047;border:1px solid #31536b;font-size:11px}
 </style>
 </head>
 <body>
@@ -93,6 +100,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="modes">
 <button id="mPath" class="active">1. Flight path<small>Click to add aircraft point</small></button>
 <button id="mAoi">2. Draw AOI<small>Two clicks for rectangle corners</small></button>
+<button id="mTx">3. Add transmitters<small>Click map · up to 10 · 2 m AGL</small></button>
 <button id="mSnr" class="layerBtn hidden">SNR map<small>After analysis</small></button>
 <button id="mEll" class="layerBtn hidden">Ellipse map<small>After analysis</small></button>
 </div>
@@ -141,6 +149,7 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="tabs">
 <button type="button" class="on" data-tab="main">Analysis</button>
 <button type="button" data-tab="ant">Antenna gain</button>
+<button type="button" data-tab="link">Radio Link</button>
 </div>
 <div id="tab-main" class="tabpane on">
 <div class="grid">
@@ -153,7 +162,8 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div class="field"><label>NF (dB)</label><input id="nf" type="number" value="6" step="0.5"></div>
 <div class="field"><label>BW (kHz)</label><input id="bw" type="number" value="25"></div>
 <div class="field"><label>Min SNR req (dB)</label><input id="minSnr" type="number" value="10" step="0.5"></div>
-<div class="field"><label>Grid (N x N = LOS samples)</label><input id="gridn" type="number" value="24" min="10" max="40"></div>
+<div class="field"><label>Grid (N × N)</label><input id="gridn" type="number" value="24" min="10" max="40"></div>
+<div class="grid-size" id="gridSizeInfo">Draw AOI to calculate cell dimensions.</div>
 <div class="field"><label>Frequency view</label>
 <select id="freqView"><option value="all">All frequencies (aggregate)</option></select></div>
 <div class="field"><label>Calculation type</label>
@@ -181,6 +191,15 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <div id="gainRows"></div>
 <button id="addGain" type="button" style="border:0;border-radius:10px;padding:8px 10px;background:#1e3a5f;color:#fff;margin-top:8px">+ Add frequency</button>
 </div>
+<div id="tab-link" class="tabpane">
+<p class="hint">Place up to 10 identical radio stations on the map. Select any pair to calculate the point-to-point radio link. All stations use the shared Analysis and Antenna gain settings.</p>
+<div class="row" style="margin-top:0"><button type="button" id="startTxPlacement" style="background:#0f766e">Place transmitter on map</button><button type="button" id="clearTransmitters" style="background:#3f1d1d">Clear all</button></div>
+<div class="tx-list" id="txList"><span class="hint">No transmitters placed.</span></div>
+<div class="grid"><div class="field"><label>Transmitter A</label><select id="linkTxA"></select></div><div class="field"><label>Transmitter B</label><select id="linkTxB"></select></div></div>
+<p class="hint">Antenna height: 2 m AGL for every station. Radio parameters are shared: Tx power, frequency, bandwidth, NF, minimum SNR and antenna gain curve.</p>
+<button type="button" id="runLinkBtn" style="width:100%;border:0;border-radius:12px;padding:12px;background:#2563eb;color:white;font-weight:800">Calculate radio link</button>
+<div class="link-result" id="linkResult">Place at least two transmitters to calculate a link.</div>
+</div>
 <div class="row">
 <button id="clearBtn">Clear drawing</button>
 <button id="saveCfgBtn" type="button">Save Configuration</button>
@@ -197,5 +216,6 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 <script src="optimal-leg.js?v=20260910g"></script>
 <script src="ui.js?v=20260910g"></script>
 <script src="ui-ops.js?v=20260910g"></script>\n<script src="analysis-interactions.js?v=20261126a"></script>
+<script src="link-analysis.js?v=20261126a"></script>
 </body>
 </html>
