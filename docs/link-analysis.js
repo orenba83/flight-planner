@@ -20,7 +20,11 @@ function renderUi(){
 }
 function placement(on){
  placing=!!on;
- if(placing){const linkTab=document.querySelector('.tabs button[data-tab="link"]');if(linkTab&&!linkTab.classList.contains('on'))linkTab.click()}
+ if(placing){
+  document.querySelectorAll('.tabs button[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab==='link'));
+  document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('on',p.id==='tab-link'));
+  const sheet=el('sheet');if(sheet)sheet.classList.add('open');
+ }
  if(typeof setMode==='function')setMode(placing?'tx':'path');
  if(el('mTx'))el('mTx').classList.toggle('active',placing);
  if(el('startTxPlacement'))el('startTxPlacement').textContent=placing?'Placement active · click map':'Place transmitter on map';
