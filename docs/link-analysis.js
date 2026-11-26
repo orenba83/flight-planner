@@ -56,7 +56,7 @@ async function calculate(){
  try{
   const p=params(),D=hav(A,B);if(D<1)throw new Error('Transmitters are too close.');
   const count=clamp(Math.ceil(D/250),40,160),points=Array.from({length:count+1},(_,i)=>({lat:A.lat+(B.lat-A.lat)*i/count,lng:A.lng+(B.lng-A.lng)*i/count}));
-  const source=await fetchElevations(points),ground=points.map(pt=>elevAt(pt.lat,pt.lng)),hA=ground[0]+2,hB=ground[ground.length-1]+2;
+  const source=await fetchElevations(points),ground=points.map(pt=>Number(elevCache[pt.lat.toFixed(4)+','+pt.lng.toFixed(4)])||0),hA=ground[0]+2,hB=ground[ground.length-1]+2;
   const profiles=p.freqs.map(f=>{
    const lambda=C/(f*1e6);
    const samples=points.map((pt,i)=>{const t=i/count,d=D*t,d2=D-d,bulge=d>0&&d2>0?d*d2/(2*K_EFF*R):0,ray=hA+(hB-hA)*t,fresnel=d>0&&d2>0?Math.sqrt(lambda*d*d2/D):0;return{d,terrain:ground[i]+bulge,ray,fresnel}});
