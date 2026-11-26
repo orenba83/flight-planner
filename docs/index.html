@@ -73,6 +73,9 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 #optControls{display:none;margin:8px 0;padding:10px;background:#0d1524;border:1px solid var(--line);border-radius:12px}
 #optControls.show{display:block !important}
 
+
+.cell-details{display:none;margin-top:10px;background:#0d1b2d;border:1px solid #3b82f6;border-radius:12px;padding:12px;font-size:13px;line-height:1.55;box-shadow:0 4px 14px #0005}
+.cell-details.show{display:block}.cell-details-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.cell-details-head b{color:#93c5fd}.cell-details-close{border:0;border-radius:7px;background:#243044;color:#fff;padding:5px 9px;cursor:pointer}.cell-details-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}.cell-details-grid span{display:block;color:#93a0b5;font-size:10px}.cell-details-grid strong{font-size:13px;color:#e8eef7}
 </style>
 </head>
 <body>
@@ -187,12 +190,12 @@ button,input,select{font:inherit}#map{position:fixed;inset:0}
 </div>
 <input id="loadCfgFile" type="file" accept="application/json,.json" style="display:none">
 <p class="hint">Save downloads JSON. Send the file with the link. The other person clicks Load Configuration.</p>
-<div class="result" id="result">Draw path and AOI, then Run Analysis.</div>
+<div class="result" id="result">Draw path and AOI, then Run Analysis.</div>\n<div class="cell-details" id="cellDetails" aria-live="polite"><div class="cell-details-head"><b>Selected map point</b><button type="button" class="cell-details-close" id="closeCellDetails">Close</button></div><div id="cellDetailsBody"></div></div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="flight-planner.js?v=20260910g"></script>
 <script src="optimal-leg.js?v=20260910g"></script>
 <script src="ui.js?v=20260910g"></script>
-<script src="ui-ops.js?v=20260910g"></script>
+<script src="ui-ops.js?v=20260910g"></script>\n<script src="analysis-interactions.js?v=20261126a"></script>
 </body>
 </html>
