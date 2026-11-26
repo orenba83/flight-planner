@@ -38,6 +38,7 @@ function gridDimensions(){
  out.innerHTML='<b>'+(n*n).toLocaleString()+' cells</b> · each ≈ <b>'+(cw/1000).toFixed(3)+' × '+(ch/1000).toFixed(3)+' km</b><br>AOI ≈ '+(w/1000).toFixed(2)+' × '+(h/1000).toFixed(2)+' km · cell area ≈ '+(cw*ch/1e6).toFixed(4)+' km²';
 }
 if(el('gridn'))el('gridn').addEventListener('input',gridDimensions);
+if(el('clearBtn'))el('clearBtn').addEventListener('click',()=>setTimeout(gridDimensions,0));
 if(typeof setAoi==='function'){const oldSetAoi=setAoi;setAoi=function(){const r=oldSetAoi.apply(this,arguments);gridDimensions();return r}}
 gridDimensions();
 function profileSvg(samples,D){
