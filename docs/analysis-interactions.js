@@ -86,6 +86,12 @@
     syncAircraftMarker();
   };
 
+  const originalRunAnalysis = runAnalysis;
+  runAnalysis = async function () {
+    closeCellDetails();
+    return originalRunAnalysis.apply(this, arguments);
+  };
+
   const originalPaintHeat = paintHeat;
   paintHeat = function (kind) {
     originalPaintHeat(kind);
